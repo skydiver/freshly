@@ -33,6 +33,9 @@ fn parse_appcast(xml: &str) -> Result<AppcastItem, String> {
     let mut current_item: Option<AppcastItem> = None;
     let mut in_description = false;
     let mut description_text = String::new();
+    // Track when inside standalone version elements
+    let mut in_version = false;
+    let mut in_short_version = false;
 
     loop {
         match reader.read_event() {
@@ -52,6 +55,12 @@ fn parse_appcast(xml: &str) -> Result<AppcastItem, String> {
                     if let Some(ref mut item) = current_item {
                         parse_enclosure_attrs(e.attributes(), item);
                     }
+                }
+                b"sparkle:version" if current_item.is_some() => {
+                    in_version = true;
+                }
+                b"sparkle:shortVersionString" if current_item.is_some() => {
+                    in_short_version = true;
                 }
                 _ => {}
             },
@@ -76,11 +85,20 @@ fn parse_appcast(xml: &str) -> Result<AppcastItem, String> {
                         in_description = false;
                     }
                 }
+                b"sparkle:version" => in_version = false,
+                b"sparkle:shortVersionString" => in_short_version = false,
                 _ => {}
             },
             Ok(Event::Text(ref e)) => {
                 if in_description {
                     description_text.push_str(&e.unescape().unwrap_or_default());
+                } else if let Some(ref mut item) = current_item {
+                    let text = e.unescape().unwrap_or_default().to_string();
+                    if in_short_version && item.short_version.is_none() {
+                        item.short_version = Some(text);
+                    } else if in_version && item.version.is_none() {
+                        item.version = Some(text);
+                    }
                 }
             }
             Ok(Event::CData(ref e)) => {
