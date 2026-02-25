@@ -38,6 +38,13 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    // Available width inside the border (minus 2 for borders)
+    let inner_w = area.width.saturating_sub(2) as usize;
+    // Indicator (2) + gap (1) between each column
+    let fixed = 2 + 1 + 1; // "↑ " + space after name + space after current
+    let version_col = 14;
+    let name_col = inner_w.saturating_sub(fixed + version_col * 2).max(10);
+
     let items: Vec<ListItem> = app
         .filtered_indices
         .iter()
@@ -50,32 +57,38 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             };
 
             let name = Span::styled(
-                format!("{:<20}", truncate(&app_info.name, 20)),
+                format!("{:<width$}", truncate(&app_info.name, name_col), width = name_col),
                 Style::default().fg(Color::White),
             );
 
-            let version = if app_info.has_update {
+            let current = Span::styled(
+                format!(
+                    " {:<width$}",
+                    truncate(&app_info.installed_version, version_col),
+                    width = version_col
+                ),
+                Style::default().fg(Color::Gray),
+            );
+
+            let latest = if app_info.has_update {
                 Span::styled(
                     format!(
-                        " {}→{}",
-                        truncate(&app_info.installed_version, 8),
-                        truncate(app_info.latest_version.as_deref().unwrap_or("?"), 8)
+                        " {}",
+                        truncate(
+                            app_info.latest_version.as_deref().unwrap_or("?"),
+                            version_col
+                        )
                     ),
                     Style::default().fg(Color::Yellow),
                 )
             } else {
                 Span::styled(
-                    format!(" {} ✓", truncate(&app_info.installed_version, 8)),
+                    format!(" {}", "✓"),
                     Style::default().fg(Color::Green),
                 )
             };
 
-            let source = Span::styled(
-                format!("  {}", app_info.source),
-                Style::default().fg(Color::DarkGray),
-            );
-
-            ListItem::new(Line::from(vec![update_indicator, name, version, source]))
+            ListItem::new(Line::from(vec![update_indicator, name, current, latest]))
         })
         .collect();
 

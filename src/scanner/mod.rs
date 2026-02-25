@@ -2,8 +2,9 @@ pub mod appstore;
 pub mod homebrew;
 pub mod sparkle;
 
+use std::collections::HashMap;
 use async_trait::async_trait;
-use crate::model::{DiscoveredApp, ScanResult};
+use crate::model::{AppInfo, DiscoveredApp, ScanResult};
 
 #[async_trait]
 pub trait Scanner {
@@ -60,43 +61,14 @@ impl HttpClient for ReqwestClient {
     }
 }
 
-/// Abstraction over subprocess execution for testability.
-#[async_trait]
-pub trait CommandRunner: Send + Sync {
-    async fn run(&self, command: &str, args: &[&str]) -> Result<String, String>;
-}
-
-/// Production command runner using tokio::process.
-pub struct TokioCommandRunner;
-
-#[async_trait]
-impl CommandRunner for TokioCommandRunner {
-    async fn run(&self, command: &str, args: &[&str]) -> Result<String, String> {
-        let output = tokio::process::Command::new(command)
-            .args(args)
-            .output()
-            .await
-            .map_err(|e| format!("Failed to run {}: {}", command, e))?;
-
-        if output.status.success() {
-            String::from_utf8(output.stdout)
-                .map_err(|e| format!("Invalid UTF-8 output: {}", e))
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(format!("{} failed: {}", command, stderr))
-        }
-    }
-}
-
 /// Run all three scanners concurrently and merge results.
 pub async fn run_scanners(
     apps: &[DiscoveredApp],
     http: &impl HttpClient,
-    cmd: &impl CommandRunner,
 ) -> ScanResult {
     let appstore = appstore::AppStoreScanner::new(http);
     let sparkle = sparkle::SparkleScanner::new(http);
-    let homebrew = homebrew::HomebrewScanner::new(cmd);
+    let homebrew = homebrew::HomebrewScanner::new(http);
 
     let (r1, r2, r3) = tokio::join!(
         appstore.scan(apps),
@@ -113,6 +85,22 @@ pub async fn run_scanners(
         merged.apps.extend(r.apps);
         merged.errors.extend(r.errors);
     }
+
+    // Deduplicate by bundle_id — prefer the entry that has an update,
+    // or the first one seen if neither/both do.
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut deduped: Vec<AppInfo> = Vec::new();
+    for app in merged.apps {
+        if let Some(&idx) = seen.get(&app.bundle_id) {
+            if app.has_update && !deduped[idx].has_update {
+                deduped[idx] = app;
+            }
+        } else {
+            seen.insert(app.bundle_id.clone(), deduped.len());
+            deduped.push(app);
+        }
+    }
+    merged.apps = deduped;
 
     merged
         .apps

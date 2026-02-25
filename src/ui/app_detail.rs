@@ -28,7 +28,6 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         return;
     };
 
-    let source_str = selected.source.to_string();
     let location_str = selected.app_path.display().to_string();
 
     let mut lines = vec![
@@ -45,7 +44,6 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             "Available",
             selected.latest_version.as_deref().unwrap_or("—"),
         ),
-        detail_line("Source", &source_str),
         detail_line("Location", &location_str),
         Line::from(""),
     ];

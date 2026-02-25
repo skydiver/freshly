@@ -1,117 +1,129 @@
 use async_trait::async_trait;
-use std::path::PathBuf;
+use serde::Deserialize;
+use std::collections::HashMap;
 
-use crate::model::{AppInfo, DiscoveredApp, ScanError, ScanResult, Source};
-use crate::scanner::{CommandRunner, Scanner};
+use crate::model::{is_newer_version, AppInfo, DiscoveredApp, ScanError, ScanResult, Source};
+use crate::scanner::{HttpClient, Scanner};
 
-pub struct HomebrewScanner<'a, C: CommandRunner> {
-    runner: &'a C,
+const CASK_API_URL: &str = "https://formulae.brew.sh/api/cask.json";
+
+pub struct HomebrewScanner<'a, H: HttpClient> {
+    http: &'a H,
 }
 
-impl<'a, C: CommandRunner> HomebrewScanner<'a, C> {
-    pub fn new(runner: &'a C) -> Self {
-        Self { runner }
+impl<'a, H: HttpClient> HomebrewScanner<'a, H> {
+    pub fn new(http: &'a H) -> Self {
+        Self { http }
     }
 }
 
-/// Parse `brew outdated --cask --greedy` output.
-/// Each line is like: `firefox (124.0) != 125.0.1`
-fn parse_outdated_line(line: &str) -> Option<(String, String, String)> {
-    let line = line.trim();
-    if line.is_empty() {
-        return None;
+/// A single cask entry from the Homebrew Cask API.
+#[derive(Deserialize)]
+struct CaskEntry {
+    token: String,
+    name: Vec<String>,
+    version: String,
+    artifacts: Vec<CaskArtifact>,
+}
+
+/// Artifacts are heterogeneous objects in the JSON array.
+/// We only care about the ones containing `"app": ["Foo.app"]`.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CaskArtifact {
+    App { app: Vec<String> },
+    #[serde(deserialize_with = "deserialize_ignore")]
+    Other,
+}
+
+/// Deserialize-and-discard for artifact types we don't care about.
+fn deserialize_ignore<'de, D: serde::Deserializer<'de>>(d: D) -> Result<(), D::Error> {
+    serde::de::IgnoredAny::deserialize(d)?;
+    Ok(())
+}
+
+impl CaskEntry {
+    /// Extract `.app` filenames from this cask's artifacts.
+    fn app_names(&self) -> Vec<&str> {
+        self.artifacts
+            .iter()
+            .filter_map(|a| match a {
+                CaskArtifact::App { app } => Some(app.iter().map(|s| s.as_str())),
+                CaskArtifact::Other => None,
+            })
+            .flatten()
+            .collect()
     }
 
-    let parts: Vec<&str> = line.splitn(2, " (").collect();
-    if parts.len() != 2 {
-        return None;
+    /// Best display name: first entry in `name`, falling back to `token`.
+    fn display_name(&self) -> &str {
+        self.name.first().map(|s| s.as_str()).unwrap_or(&self.token)
     }
+}
 
-    let name = parts[0].trim().to_string();
-    let rest = parts[1];
-
-    let parts: Vec<&str> = rest.splitn(2, ") != ").collect();
-    if parts.len() != 2 {
-        return None;
-    }
-
-    let installed = parts[0].trim().to_string();
-    let latest = parts[1].trim().to_string();
-
-    Some((name, installed, latest))
+/// Strip Homebrew build metadata after a comma (e.g. "5.7.2,2312" → "5.7.2").
+fn strip_build_metadata(version: &str) -> String {
+    version.split(',').next().unwrap_or(version).to_string()
 }
 
 #[async_trait]
-impl<C: CommandRunner> Scanner for HomebrewScanner<'_, C> {
+impl<H: HttpClient> Scanner for HomebrewScanner<'_, H> {
     fn name(&self) -> &str {
         "Homebrew"
     }
 
-    async fn scan(&self, _apps: &[DiscoveredApp]) -> ScanResult {
+    async fn scan(&self, apps: &[DiscoveredApp]) -> ScanResult {
         let mut result = ScanResult {
             apps: Vec::new(),
             errors: Vec::new(),
         };
 
-        // Check if brew is available
-        let cask_list = match self.runner.run("brew", &["list", "--cask"]).await {
-            Ok(output) => output,
+        let casks: Vec<CaskEntry> = match self.http.get_json(CASK_API_URL).await {
+            Ok(c) => c,
             Err(e) => {
                 result.errors.push(ScanError {
                     scanner: "Homebrew".to_string(),
                     app_name: None,
-                    message: format!("Homebrew not available: {}", e),
+                    message: format!("Failed to fetch cask catalog: {}", e),
                 });
                 return result;
             }
         };
 
-        let installed_casks: Vec<String> = cask_list
-            .lines()
-            .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty())
-            .collect();
-
-        // Get outdated casks
-        let outdated_output: String = self
-            .runner
-            .run("brew", &["outdated", "--cask", "--greedy"])
-            .await
-            .unwrap_or_default();
-
-        let mut outdated_map: std::collections::HashMap<String, (String, String)> =
-            std::collections::HashMap::new();
-
-        for line in outdated_output.lines() {
-            if let Some((name, installed, latest)) = parse_outdated_line(line) {
-                outdated_map.insert(name, (installed, latest));
+        // Build lookup: ".app filename" → &CaskEntry
+        let mut lookup: HashMap<&str, &CaskEntry> = HashMap::new();
+        for cask in &casks {
+            for app_name in cask.app_names() {
+                lookup.insert(app_name, cask);
             }
         }
 
-        for cask_name in &installed_casks {
-            if let Some((installed, latest)) = outdated_map.get(cask_name) {
-                result.apps.push(AppInfo {
-                    name: cask_name.clone(),
-                    bundle_id: format!("homebrew.cask.{}", cask_name),
-                    installed_version: installed.clone(),
-                    latest_version: Some(latest.clone()),
-                    source: Source::Homebrew,
-                    has_update: true,
-                    changelog: None,
-                    app_path: PathBuf::from(format!("/opt/homebrew/Caskroom/{}", cask_name)),
-                });
-            } else {
-                result.apps.push(AppInfo {
-                    name: cask_name.clone(),
-                    bundle_id: format!("homebrew.cask.{}", cask_name),
-                    installed_version: "latest".to_string(),
-                    latest_version: None,
-                    source: Source::Homebrew,
-                    has_update: false,
-                    changelog: None,
-                    app_path: PathBuf::from(format!("/opt/homebrew/Caskroom/{}", cask_name)),
-                });
-            }
+        for app in apps {
+            let file_name = match app.path.file_name().and_then(|f| f.to_str()) {
+                Some(name) => name,
+                None => continue,
+            };
+
+            let cask = match lookup.get(file_name) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Homebrew cask versions can include build metadata after a comma
+            // (e.g. "5.7.2,2312") — strip it for cleaner display and comparison.
+            let latest_version = strip_build_metadata(&cask.version);
+            let has_update = is_newer_version(&app.version, &latest_version);
+
+            result.apps.push(AppInfo {
+                name: cask.display_name().to_string(),
+                bundle_id: app.bundle_id.clone(),
+                installed_version: app.version.clone(),
+                latest_version: Some(latest_version),
+                source: Source::Homebrew,
+                has_update,
+                changelog: None,
+                app_path: app.path.clone(),
+            });
         }
 
         result
@@ -121,85 +133,158 @@ impl<C: CommandRunner> Scanner for HomebrewScanner<'_, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use std::sync::Mutex;
 
-    struct MockCommandRunner {
-        responses: Mutex<std::collections::HashMap<String, Result<String, String>>>,
+    struct MockHttpClient {
+        responses: Mutex<Vec<Result<String, String>>>,
     }
 
-    impl MockCommandRunner {
-        fn new() -> Self {
+    impl MockHttpClient {
+        fn with_json(json: &str) -> Self {
             Self {
-                responses: Mutex::new(std::collections::HashMap::new()),
+                responses: Mutex::new(vec![Ok(json.to_string())]),
             }
         }
 
-        fn with_response(self, key: &str, response: Result<String, String>) -> Self {
-            self.responses
-                .lock()
-                .unwrap()
-                .insert(key.to_string(), response);
-            self
+        fn with_error(msg: &str) -> Self {
+            Self {
+                responses: Mutex::new(vec![Err(msg.to_string())]),
+            }
         }
     }
 
     #[async_trait]
-    impl CommandRunner for MockCommandRunner {
-        async fn run(&self, command: &str, args: &[&str]) -> Result<String, String> {
-            let key = format!("{} {}", command, args.join(" "));
+    impl HttpClient for MockHttpClient {
+        async fn get_text(&self, _url: &str) -> Result<String, String> {
             self.responses
                 .lock()
                 .unwrap()
-                .remove(&key)
-                .unwrap_or(Err(format!("Unexpected command: {}", key)))
+                .pop()
+                .unwrap_or(Err("No response".into()))
+        }
+
+        async fn get_json<T: serde::de::DeserializeOwned>(
+            &self,
+            _url: &str,
+        ) -> Result<T, String> {
+            let text = self
+                .responses
+                .lock()
+                .unwrap()
+                .pop()
+                .unwrap_or(Err("No response".into()))?;
+            serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))
         }
     }
 
-    #[test]
-    fn test_parse_outdated_line() {
-        let (name, installed, latest) =
-            parse_outdated_line("firefox (124.0) != 125.0.1").unwrap();
-        assert_eq!(name, "firefox");
-        assert_eq!(installed, "124.0");
-        assert_eq!(latest, "125.0.1");
+    fn make_app(name: &str, bundle_id: &str, version: &str) -> DiscoveredApp {
+        DiscoveredApp {
+            name: name.to_string(),
+            bundle_id: bundle_id.to_string(),
+            version: version.to_string(),
+            path: PathBuf::from(format!("/Applications/{}.app", name)),
+            has_mas_receipt: false,
+            sparkle_feed_url: None,
+        }
     }
 
-    #[test]
-    fn test_parse_outdated_line_empty() {
-        assert!(parse_outdated_line("").is_none());
-        assert!(parse_outdated_line("   ").is_none());
-    }
-
-    #[tokio::test]
-    async fn test_scan_with_outdated_casks() {
-        let runner = MockCommandRunner::new()
-            .with_response("brew list --cask", Ok("firefox\nslack\niterm2".to_string()))
-            .with_response(
-                "brew outdated --cask --greedy",
-                Ok("firefox (124.0) != 125.0.1".to_string()),
-            );
-
-        let scanner = HomebrewScanner::new(&runner);
-        let result = scanner.scan(&[]).await;
-
-        assert_eq!(result.apps.len(), 3);
-        let firefox = result.apps.iter().find(|a| a.name == "firefox").unwrap();
-        assert!(firefox.has_update);
-        assert_eq!(firefox.latest_version, Some("125.0.1".to_string()));
-
-        let slack = result.apps.iter().find(|a| a.name == "slack").unwrap();
-        assert!(!slack.has_update);
+    fn cask_json(token: &str, name: &str, version: &str, app_file: &str) -> String {
+        format!(
+            r#"[{{"token":"{}","name":["{}"],"version":"{}","artifacts":[{{"app":["{}"]}}]}}]"#,
+            token, name, version, app_file
+        )
     }
 
     #[tokio::test]
-    async fn test_scan_brew_not_installed() {
-        let runner =
-            MockCommandRunner::new().with_response("brew list --cask", Err("command not found".to_string()));
+    async fn test_scan_finds_update() {
+        let json = cask_json("firefox", "Mozilla Firefox", "125.0.1", "Firefox.app");
+        let http = MockHttpClient::with_json(&json);
+        let scanner = HomebrewScanner::new(&http);
+        let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
 
-        let scanner = HomebrewScanner::new(&runner);
-        let result = scanner.scan(&[]).await;
+        let result = scanner.scan(&apps).await;
+
+        assert_eq!(result.apps.len(), 1);
+        assert!(result.apps[0].has_update);
+        assert_eq!(
+            result.apps[0].latest_version,
+            Some("125.0.1".to_string())
+        );
+        assert_eq!(result.apps[0].installed_version, "124.0");
+    }
+
+    #[tokio::test]
+    async fn test_scan_no_update() {
+        let json = cask_json("firefox", "Mozilla Firefox", "124.0", "Firefox.app");
+        let http = MockHttpClient::with_json(&json);
+        let scanner = HomebrewScanner::new(&http);
+        let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
+
+        let result = scanner.scan(&apps).await;
+
+        assert_eq!(result.apps.len(), 1);
+        assert!(!result.apps[0].has_update);
+    }
+
+    #[tokio::test]
+    async fn test_unmatched_app_skipped() {
+        let json = cask_json("firefox", "Mozilla Firefox", "125.0", "Firefox.app");
+        let http = MockHttpClient::with_json(&json);
+        let scanner = HomebrewScanner::new(&http);
+        // App filename doesn't match any cask
+        let apps = vec![make_app("MyCustomApp", "com.custom.app", "1.0.0")];
+
+        let result = scanner.scan(&apps).await;
+
+        assert!(result.apps.is_empty());
+        assert!(result.errors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_api_failure() {
+        let http = MockHttpClient::with_error("Network error");
+        let scanner = HomebrewScanner::new(&http);
+        let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
+
+        let result = scanner.scan(&apps).await;
 
         assert!(result.apps.is_empty());
         assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].scanner, "Homebrew");
+    }
+
+    #[tokio::test]
+    async fn test_uses_display_name() {
+        let json = cask_json(
+            "visual-studio-code",
+            "Microsoft Visual Studio Code",
+            "1.109.5",
+            "Visual Studio Code.app",
+        );
+        let http = MockHttpClient::with_json(&json);
+        let scanner = HomebrewScanner::new(&http);
+        let apps = vec![make_app(
+            "Visual Studio Code",
+            "com.microsoft.VSCode",
+            "1.100.0",
+        )];
+
+        let result = scanner.scan(&apps).await;
+
+        assert_eq!(result.apps.len(), 1);
+        assert_eq!(result.apps[0].name, "Microsoft Visual Studio Code");
+    }
+
+    #[tokio::test]
+    async fn test_uses_real_bundle_id() {
+        let json = cask_json("firefox", "Mozilla Firefox", "125.0", "Firefox.app");
+        let http = MockHttpClient::with_json(&json);
+        let scanner = HomebrewScanner::new(&http);
+        let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
+
+        let result = scanner.scan(&apps).await;
+
+        assert_eq!(result.apps[0].bundle_id, "org.mozilla.firefox");
     }
 }

@@ -87,7 +87,7 @@ impl App {
             filtered_indices: Vec::new(),
             selected_index: 0,
             detail_scroll: 0,
-            filter: FilterMode::All,
+            filter: FilterMode::Outdated,
             sort: SortMode::Name,
             search_query: String::new(),
             is_searching: false,
@@ -125,6 +125,19 @@ impl App {
 
     pub fn select_previous(&mut self) {
         self.selected_index = self.selected_index.saturating_sub(1);
+        self.detail_scroll = 0;
+    }
+
+    pub fn page_down(&mut self, page_size: usize) {
+        if !self.filtered_indices.is_empty() {
+            self.selected_index =
+                (self.selected_index + page_size).min(self.filtered_indices.len() - 1);
+            self.detail_scroll = 0;
+        }
+    }
+
+    pub fn page_up(&mut self, page_size: usize) {
+        self.selected_index = self.selected_index.saturating_sub(page_size);
         self.detail_scroll = 0;
     }
 
@@ -270,16 +283,18 @@ mod tests {
         app.set_results(sample_result());
         assert_eq!(app.screen, Screen::Main);
         assert_eq!(app.apps.len(), 4);
-        assert_eq!(app.filtered_indices.len(), 4);
+        // Default filter is Outdated, so only 2 shown
+        assert_eq!(app.filtered_indices.len(), 2);
     }
 
     #[test]
-    fn test_filter_outdated() {
+    fn test_filter_all() {
         let mut app = App::new();
         app.set_results(sample_result());
-        app.cycle_filter(); // All -> Outdated
-        assert_eq!(app.filter, FilterMode::Outdated);
-        assert_eq!(app.filtered_indices.len(), 2);
+        app.cycle_filter(); // Outdated -> UpToDate
+        app.cycle_filter(); // UpToDate -> All
+        assert_eq!(app.filter, FilterMode::All);
+        assert_eq!(app.filtered_indices.len(), 4);
     }
 
     #[test]
@@ -299,6 +314,7 @@ mod tests {
     fn test_search_filter() {
         let mut app = App::new();
         app.set_results(sample_result());
+        // Default is Outdated (Firefox, Slack). Search for "fi" → Firefox only
         app.is_searching = true;
         app.update_search('f');
         app.update_search('i');

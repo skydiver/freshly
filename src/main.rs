@@ -36,8 +36,7 @@ fn spawn_scan(tx: tokio::sync::mpsc::Sender<ScanResult>) {
     tokio::spawn(async move {
         let apps = discovery::discover_apps(std::path::Path::new("/Applications"));
         let http = scanner::ReqwestClient::new();
-        let cmd = scanner::TokioCommandRunner;
-        let result = scanner::run_scanners(&apps, &http, &cmd).await;
+        let result = scanner::run_scanners(&apps, &http).await;
         let _ = tx.send(result).await;
     });
 }
@@ -58,8 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if cli.json {
         let apps = discovery::discover_apps(std::path::Path::new("/Applications"));
         let http = scanner::ReqwestClient::new();
-        let cmd = scanner::TokioCommandRunner;
-        let result = scanner::run_scanners(&apps, &http, &cmd).await;
+        let result = scanner::run_scanners(&apps, &http).await;
 
         let output = filter_by_source(result.apps, &cli.source);
         println!("{}", serde_json::to_string_pretty(&output)?);
@@ -133,6 +131,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.select_next();
                             } else {
                                 app.scroll_detail_down();
+                            }
+                        }
+                        KeyCode::PageDown => {
+                            let page = terminal.size().map(|s| s.height as usize).unwrap_or(20).saturating_sub(4);
+                            if app.active_pane == app::Pane::List {
+                                app.page_down(page);
+                            } else {
+                                for _ in 0..page { app.scroll_detail_down(); }
+                            }
+                        }
+                        KeyCode::PageUp => {
+                            let page = terminal.size().map(|s| s.height as usize).unwrap_or(20).saturating_sub(4);
+                            if app.active_pane == app::Pane::List {
+                                app.page_up(page);
+                            } else {
+                                for _ in 0..page { app.scroll_detail_up(); }
                             }
                         }
                         KeyCode::Tab => app.toggle_pane(),
