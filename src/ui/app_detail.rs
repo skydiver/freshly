@@ -1,4 +1,5 @@
 use crate::app::{App, Pane};
+use crate::model::Source;
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
@@ -29,49 +30,68 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let location_str = selected.app_path.display().to_string();
+    let source_label = match selected.source {
+        Source::AppStore => "App Store",
+        Source::Sparkle => "Sparkle",
+        Source::Homebrew => "Homebrew",
+    };
+
+    let available_color = if selected.has_update {
+        if is_major_update(&selected.installed_version, selected.latest_version.as_deref().unwrap_or("")) {
+            Color::Red
+        } else {
+            Color::Yellow
+        }
+    } else {
+        Color::White
+    };
 
     let mut lines = vec![
-        Line::from(Span::styled(
-            &selected.name,
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )),
         Line::from(""),
-        detail_line("Bundle ID", &selected.bundle_id),
-        detail_line("Installed", &selected.installed_version),
+        detail_line("Name", &selected.name, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        detail_line("Bundle", &selected.bundle_id, Style::default().fg(Color::White)),
+        detail_line("Location", &location_str, Style::default().fg(Color::White)),
+        Line::from(""),
+        detail_line("Installed", &selected.installed_version, Style::default().fg(Color::Gray)),
         detail_line(
             "Available",
             selected.latest_version.as_deref().unwrap_or("—"),
+            Style::default().fg(available_color),
         ),
-        detail_line("Location", &location_str),
+        detail_line("Source", source_label, Style::default().fg(Color::Gray)),
         Line::from(""),
     ];
 
     if selected.has_update {
-        lines.push(Line::from(Span::styled(
-            "⬆ Update available",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )));
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                "⬆ Update available",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
         lines.push(Line::from(""));
     }
 
     if let Some(ref changelog) = selected.changelog {
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                "Changelog",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
         lines.push(Line::from(Span::styled(
-            "Changelog",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(Span::styled(
-            "─".repeat(20),
+            format!(" {}", "─".repeat(20)),
             Style::default().fg(Color::DarkGray),
         )));
 
         for line in changelog.lines() {
-            lines.push(Line::from(Span::raw(line)));
+            lines.push(Line::from(format!(" {}", line)));
         }
     }
 
@@ -83,12 +103,23 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
-fn detail_line<'a>(label: &'a str, value: &'a str) -> Line<'a> {
+fn detail_line<'a>(label: &'a str, value: &'a str, value_style: Style) -> Line<'a> {
     Line::from(vec![
+        Span::raw(" "),
         Span::styled(
             format!("{:<12}", label),
             Style::default().fg(Color::DarkGray),
         ),
-        Span::styled(value, Style::default().fg(Color::White)),
+        Span::styled(value, value_style),
     ])
+}
+
+fn is_major_update(installed: &str, latest: &str) -> bool {
+    let major = |v: &str| -> Option<u64> {
+        v.split('.').next().and_then(|s| s.parse().ok())
+    };
+    match (major(installed), major(latest)) {
+        (Some(a), Some(b)) => b > a,
+        _ => false,
+    }
 }

@@ -91,9 +91,14 @@ impl<H: HttpClient> Scanner for HomebrewScanner<'_, H> {
         };
 
         // Build lookup: ".app filename" → &CaskEntry
+        // Prefer stable casks (no "@" in token) over taps like @beta, @snapshot.
         let mut lookup: HashMap<&str, &CaskEntry> = HashMap::new();
         for cask in &casks {
+            let is_variant = cask.token.contains('@');
             for app_name in cask.app_names() {
+                if is_variant && lookup.contains_key(app_name) {
+                    continue;
+                }
                 lookup.insert(app_name, cask);
             }
         }

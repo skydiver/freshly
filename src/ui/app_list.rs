@@ -1,4 +1,5 @@
 use crate::app::{App, FilterMode, Pane};
+use crate::model::Source;
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
@@ -40,9 +41,9 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
 
     // Available width inside the border (minus 2 for borders)
     let inner_w = area.width.saturating_sub(2) as usize;
-    // Indicator (2) + gap (1) between each column
-    let fixed = 2 + 1 + 1; // "↑ " + space after name + space after current
-    let version_col = 14;
+    // Indicator (2) + space between cols (3) + source tag (4 = " [S]")
+    let fixed = 2 + 3 + 4;
+    let version_col = 17;
     let name_col = inner_w.saturating_sub(fixed + version_col * 2).max(10);
 
     let items: Vec<ListItem> = app
@@ -71,24 +72,33 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             );
 
             let latest = if app_info.has_update {
+                let latest_str = app_info.latest_version.as_deref().unwrap_or("?");
+                let color = if is_major_update(&app_info.installed_version, latest_str) {
+                    Color::Red
+                } else {
+                    Color::Yellow
+                };
                 Span::styled(
                     format!(
-                        " {}",
-                        truncate(
-                            app_info.latest_version.as_deref().unwrap_or("?"),
-                            version_col
-                        )
+                        " {:<width$}",
+                        truncate(latest_str, version_col),
+                        width = version_col
                     ),
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(color),
                 )
             } else {
                 Span::styled(
-                    format!(" {}", "✓"),
+                    format!(" {:<width$}", "✓", width = version_col),
                     Style::default().fg(Color::Green),
                 )
             };
 
-            ListItem::new(Line::from(vec![update_indicator, name, current, latest]))
+            let source = Span::styled(
+                format!(" [{}]", source_initial(&app_info.source)),
+                Style::default().fg(Color::Gray),
+            );
+
+            ListItem::new(Line::from(vec![update_indicator, name, current, latest, source]))
         })
         .collect();
 
@@ -102,6 +112,25 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     );
 
     f.render_stateful_widget(list, area, &mut state);
+}
+
+fn source_initial(source: &Source) -> &'static str {
+    match source {
+        Source::AppStore => "A",
+        Source::Sparkle => "S",
+        Source::Homebrew => "H",
+    }
+}
+
+/// Returns true if the major version (first numeric segment) changed.
+fn is_major_update(installed: &str, latest: &str) -> bool {
+    let major = |v: &str| -> Option<u64> {
+        v.split('.').next().and_then(|s| s.parse().ok())
+    };
+    match (major(installed), major(latest)) {
+        (Some(a), Some(b)) => b > a,
+        _ => false,
+    }
 }
 
 fn truncate(s: &str, max: usize) -> String {
