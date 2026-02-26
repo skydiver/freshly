@@ -54,7 +54,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             let update_indicator = if app_info.has_update {
                 Span::styled("↑ ", Style::default().fg(Color::Yellow))
             } else {
-                Span::styled("  ", Style::default())
+                Span::styled("✓ ", Style::default().fg(Color::Green))
             };
 
             let name = Span::styled(
@@ -87,9 +87,15 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
                     Style::default().fg(color),
                 )
             } else {
+                let latest_str = app_info.latest_version.as_deref()
+                    .unwrap_or(&app_info.installed_version);
                 Span::styled(
-                    format!(" {:<width$}", "✓", width = version_col),
-                    Style::default().fg(Color::Green),
+                    format!(
+                        " {:<width$}",
+                        truncate(latest_str, version_col),
+                        width = version_col
+                    ),
+                    Style::default().fg(Color::Gray),
                 )
             };
 
