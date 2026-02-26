@@ -33,6 +33,7 @@ pub fn parse_info_plist(plist_path: &Path) -> Result<PlistInfo, String> {
 
     let version = dict
         .get("CFBundleShortVersionString")
+        .or_else(|| dict.get("CFBundleVersion"))
         .and_then(|v| v.as_string())
         .unwrap_or("0.0.0")
         .to_string();

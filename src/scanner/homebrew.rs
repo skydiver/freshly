@@ -104,6 +104,11 @@ impl<H: HttpClient> Scanner for HomebrewScanner<'_, H> {
         }
 
         for app in apps {
+            // Skip apps with no version info — can't compare meaningfully
+            if app.version == "0.0.0" {
+                continue;
+            }
+
             let file_name = match app.path.file_name().and_then(|f| f.to_str()) {
                 Some(name) => name,
                 None => continue,
