@@ -26,10 +26,13 @@ struct AppcastItem {
     description: Option<String>,
 }
 
+/// Maximum description text size (1 MB) to prevent memory exhaustion.
+const MAX_DESCRIPTION_LEN: usize = 1_000_000;
+
 /// Parse a Sparkle appcast XML feed and return the latest version info.
 fn parse_appcast(xml: &str) -> Result<AppcastItem, String> {
     let mut reader = Reader::from_str(xml);
-    let mut items: Vec<AppcastItem> = Vec::new();
+    let mut result_item: Option<AppcastItem> = None;
     let mut current_item: Option<AppcastItem> = None;
     let mut in_description = false;
     let mut description_text = String::new();
@@ -74,7 +77,8 @@ fn parse_appcast(xml: &str) -> Result<AppcastItem, String> {
             Ok(Event::End(ref e)) => match e.name().as_ref() {
                 b"item" => {
                     if let Some(item) = current_item.take() {
-                        items.push(item);
+                        result_item = Some(item);
+                        break; // Only need the first item
                     }
                 }
                 b"description" => {
@@ -91,7 +95,9 @@ fn parse_appcast(xml: &str) -> Result<AppcastItem, String> {
             },
             Ok(Event::Text(ref e)) => {
                 if in_description {
-                    description_text.push_str(&e.unescape().unwrap_or_default());
+                    if description_text.len() < MAX_DESCRIPTION_LEN {
+                        description_text.push_str(&e.unescape().unwrap_or_default());
+                    }
                 } else if let Some(ref mut item) = current_item {
                     let text = e.unescape().unwrap_or_default().to_string();
                     if in_short_version && item.short_version.is_none() {
@@ -102,7 +108,7 @@ fn parse_appcast(xml: &str) -> Result<AppcastItem, String> {
                 }
             }
             Ok(Event::CData(ref e)) => {
-                if in_description {
+                if in_description && description_text.len() < MAX_DESCRIPTION_LEN {
                     if let Ok(text) = std::str::from_utf8(e.as_ref()) {
                         description_text.push_str(text);
                     }
@@ -114,10 +120,7 @@ fn parse_appcast(xml: &str) -> Result<AppcastItem, String> {
         }
     }
 
-    items
-        .into_iter()
-        .next()
-        .ok_or("No items found in appcast".to_string())
+    result_item.ok_or("No items found in appcast".to_string())
 }
 
 fn parse_enclosure_attrs(

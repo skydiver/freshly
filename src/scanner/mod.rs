@@ -19,6 +19,9 @@ pub trait HttpClient: Send + Sync {
     async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, String>;
 }
 
+/// Maximum response body size (50 MB) — protects against memory exhaustion.
+const MAX_RESPONSE_BYTES: u64 = 50 * 1024 * 1024;
+
 /// Production HTTP client using reqwest.
 pub struct ReqwestClient {
     client: reqwest::Client,
@@ -38,22 +41,40 @@ impl ReqwestClient {
 #[async_trait]
 impl HttpClient for ReqwestClient {
     async fn get_text(&self, url: &str) -> Result<String, String> {
-        self.client
+        let response = self
+            .client
             .get(url)
             .send()
             .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        if let Some(len) = response.content_length() {
+            if len > MAX_RESPONSE_BYTES {
+                return Err(format!("Response too large: {} bytes", len));
+            }
+        }
+
+        response
             .text()
             .await
             .map_err(|e| format!("Failed to read response: {}", e))
     }
 
     async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, String> {
-        self.client
+        let response = self
+            .client
             .get(url)
             .send()
             .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        if let Some(len) = response.content_length() {
+            if len > MAX_RESPONSE_BYTES {
+                return Err(format!("Response too large: {} bytes", len));
+            }
+        }
+
+        response
             .json::<T>()
             .await
             .map_err(|e| format!("Failed to parse JSON: {}", e))

@@ -41,6 +41,7 @@ pub fn parse_info_plist(plist_path: &Path) -> Result<PlistInfo, String> {
     let sparkle_feed_url = dict
         .get("SUFeedURL")
         .and_then(|v| v.as_string())
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
         .map(|s| s.to_string());
 
     Ok(PlistInfo {

@@ -4,6 +4,15 @@ use serde::Deserialize;
 use crate::model::{is_newer_version, AppInfo, DiscoveredApp, ScanError, ScanResult, Source};
 use crate::scanner::{HttpClient, Scanner};
 
+/// Validate that a bundle ID contains only safe characters for URL interpolation.
+/// Valid bundle IDs are reverse-DNS (e.g. "com.apple.Safari") — alphanumeric, dots, hyphens.
+fn is_safe_bundle_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'_')
+}
+
 pub struct AppStoreScanner<'a, H: HttpClient> {
     http: &'a H,
 }
@@ -47,7 +56,14 @@ impl<H: HttpClient> Scanner for AppStoreScanner<'_, H> {
 
         // Batch lookup: up to 50 bundle IDs per request
         for chunk in mas_apps.chunks(50) {
-            let bundle_ids: Vec<&str> = chunk.iter().map(|a| a.bundle_id.as_str()).collect();
+            let bundle_ids: Vec<&str> = chunk
+                .iter()
+                .map(|a| a.bundle_id.as_str())
+                .filter(|id| is_safe_bundle_id(id))
+                .collect();
+            if bundle_ids.is_empty() {
+                continue;
+            }
             let url = format!(
                 "https://itunes.apple.com/lookup?bundleId={}&country=us",
                 bundle_ids.join(",")
@@ -203,6 +219,16 @@ mod tests {
 
         let result = scanner.scan(&apps).await;
         assert!(result.apps.is_empty());
+    }
+
+    #[test]
+    fn test_safe_bundle_id() {
+        assert!(is_safe_bundle_id("com.apple.Safari"));
+        assert!(is_safe_bundle_id("org.mozilla.firefox"));
+        assert!(is_safe_bundle_id("com.example.my-app_v2"));
+        assert!(!is_safe_bundle_id("com.evil&country=cn"));
+        assert!(!is_safe_bundle_id("com.evil?extra=1"));
+        assert!(!is_safe_bundle_id(""));
     }
 
     #[tokio::test]
