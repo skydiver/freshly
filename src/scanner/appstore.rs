@@ -88,7 +88,7 @@ impl<H: HttpClient> Scanner for AppStoreScanner<'_, H> {
                 Err(e) => {
                     for app in chunk {
                         result.errors.push(ScanError {
-                            scanner: "App Store".to_string(),
+                            scanner: self.name().to_string(),
                             app_name: Some(app.name.clone()),
                             message: e.clone(),
                         });

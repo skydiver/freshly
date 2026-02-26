@@ -195,7 +195,7 @@ impl<H: HttpClient> Scanner for SparkleScanner<'_, H> {
                         }
                         Err(e) => {
                             result.errors.push(ScanError {
-                                scanner: "Sparkle".to_string(),
+                                scanner: self.name().to_string(),
                                 app_name: Some(app.name.clone()),
                                 message: e,
                             });

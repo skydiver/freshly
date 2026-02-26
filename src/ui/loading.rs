@@ -14,7 +14,7 @@ pub fn draw(f: &mut Frame, _app: &App) {
 
     let frame_idx = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis()
         / 100) as usize
         % SPINNER_FRAMES.len();

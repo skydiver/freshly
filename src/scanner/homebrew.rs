@@ -82,7 +82,7 @@ impl<H: HttpClient> Scanner for HomebrewScanner<'_, H> {
             Ok(c) => c,
             Err(e) => {
                 result.errors.push(ScanError {
-                    scanner: "Homebrew".to_string(),
+                    scanner: self.name().to_string(),
                     app_name: None,
                     message: format!("Failed to fetch cask catalog: {}", e),
                 });

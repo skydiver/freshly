@@ -8,7 +8,6 @@ use crate::model::{AppInfo, DiscoveredApp, ScanResult};
 
 #[async_trait]
 pub trait Scanner {
-    #[allow(dead_code)]
     fn name(&self) -> &str;
     async fn scan(&self, apps: &[DiscoveredApp]) -> ScanResult;
 }

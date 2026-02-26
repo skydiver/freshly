@@ -1,5 +1,5 @@
 use crate::app::{App, FilterMode, Pane};
-use crate::model::Source;
+use crate::model::{is_major_update, Source};
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
@@ -125,17 +125,6 @@ fn source_initial(source: &Source) -> &'static str {
         Source::AppStore => "A",
         Source::Sparkle => "S",
         Source::Homebrew => "H",
-    }
-}
-
-/// Returns true if the major version (first numeric segment) changed.
-fn is_major_update(installed: &str, latest: &str) -> bool {
-    let major = |v: &str| -> Option<u64> {
-        v.split('.').next().and_then(|s| s.parse().ok())
-    };
-    match (major(installed), major(latest)) {
-        (Some(a), Some(b)) => b > a,
-        _ => false,
     }
 }
 

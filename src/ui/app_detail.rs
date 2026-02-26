@@ -1,5 +1,5 @@
 use crate::app::{App, Pane};
-use crate::model::Source;
+use crate::model::is_major_update;
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
@@ -30,11 +30,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let location_str = selected.app_path.display().to_string();
-    let source_label = match selected.source {
-        Source::AppStore => "App Store",
-        Source::Sparkle => "Sparkle",
-        Source::Homebrew => "Homebrew",
-    };
+    let source_label = selected.source.to_string();
 
     let available_color = if selected.has_update {
         if is_major_update(&selected.installed_version, selected.latest_version.as_deref().unwrap_or("")) {
@@ -58,7 +54,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             selected.latest_version.as_deref().unwrap_or("—"),
             Style::default().fg(available_color),
         ),
-        detail_line("Source", source_label, Style::default().fg(Color::Gray)),
+        detail_line("Source", &source_label, Style::default().fg(Color::Gray)),
         Line::from(""),
     ];
 
@@ -112,14 +108,4 @@ fn detail_line<'a>(label: &'a str, value: &'a str, value_style: Style) -> Line<'
         ),
         Span::styled(value, value_style),
     ])
-}
-
-fn is_major_update(installed: &str, latest: &str) -> bool {
-    let major = |v: &str| -> Option<u64> {
-        v.split('.').next().and_then(|s| s.parse().ok())
-    };
-    match (major(installed), major(latest)) {
-        (Some(a), Some(b)) => b > a,
-        _ => false,
-    }
 }

@@ -55,7 +55,7 @@ pub struct ScanResult {
 }
 
 /// Compare two version strings. Returns true if `latest` is newer than `installed`.
-/// Tries semver first, falls back to padding, then lexicographic.
+/// Tries semver first, then pads to semver. Returns false for unrecognizable formats.
 pub fn is_newer_version(installed: &str, latest: &str) -> bool {
     if let (Ok(inst), Ok(lat)) = (
         semver::Version::parse(installed),
@@ -76,8 +76,19 @@ pub fn is_newer_version(installed: &str, latest: &str) -> bool {
     if let (Some(inst), Some(lat)) = (pad(installed), pad(latest)) {
         return lat > inst;
     }
-    // Last resort: lexicographic
-    latest > installed
+    // Unrecognizable format — assume no update rather than guessing
+    false
+}
+
+/// Returns true if the major version (first numeric segment) increased.
+pub fn is_major_update(installed: &str, latest: &str) -> bool {
+    let major = |v: &str| -> Option<u64> {
+        v.split('.').next().and_then(|s| s.parse().ok())
+    };
+    match (major(installed), major(latest)) {
+        (Some(a), Some(b)) => b > a,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
