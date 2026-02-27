@@ -4,7 +4,32 @@ pub mod loading;
 pub mod status_bar;
 
 use crate::app::{App, Screen};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::Frame;
+
+pub struct MainLayout {
+    pub list: Rect,
+    pub detail: Rect,
+    pub status_bar: Rect,
+}
+
+pub fn main_layout(area: Rect) -> MainLayout {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(area);
+
+    let main_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .split(chunks[0]);
+
+    MainLayout {
+        list: main_chunks[0],
+        detail: main_chunks[1],
+        status_bar: chunks[1],
+    }
+}
 
 pub fn draw(f: &mut Frame, app: &App) {
     match app.screen {
@@ -14,19 +39,9 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_main(f: &mut Frame, app: &App) {
-    use ratatui::layout::{Constraint, Direction, Layout};
+    let layout = main_layout(f.area());
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
-        .split(f.area());
-
-    let main_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
-        .split(chunks[0]);
-
-    app_list::draw(f, app, main_chunks[0]);
-    app_detail::draw(f, app, main_chunks[1]);
-    status_bar::draw(f, app, chunks[1]);
+    app_list::draw(f, app, layout.list);
+    app_detail::draw(f, app, layout.detail);
+    status_bar::draw(f, app, layout.status_bar);
 }
