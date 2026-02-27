@@ -1,4 +1,4 @@
-use crate::app::{App, Pane};
+use crate::app::{App, DetailFocus, Pane};
 use crate::model::is_major_update;
 use ratatui::{
     layout::Rect,
@@ -70,6 +70,32 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         ]));
         lines.push(Line::from(""));
     }
+
+    // Action button: [ Open App ]
+    lines.push(Line::from(""));
+    let button_style = if is_focused {
+        match app.detail_focus {
+            DetailFocus::Actions => {
+                // Selected: cyan background, bold white text
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            }
+            DetailFocus::Scroll => {
+                // Focused but scrolling: white text
+                Style::default().fg(Color::White)
+            }
+        }
+    } else {
+        // Unfocused: dim gray
+        Style::default().fg(Color::DarkGray)
+    };
+    lines.push(Line::from(vec![
+        Span::raw(" "),
+        Span::styled(" [ Open App ] ", button_style),
+    ]));
+    lines.push(Line::from(""));
 
     if let Some(ref changelog) = selected.changelog {
         lines.push(Line::from(vec![
