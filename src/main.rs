@@ -130,14 +130,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if app.active_pane == app::Pane::List {
                                 app.select_previous();
                             } else {
-                                app.scroll_detail_up();
+                                app.navigate_detail_up();
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
                             if app.active_pane == app::Pane::List {
                                 app.select_next();
                             } else {
-                                app.scroll_detail_down();
+                                app.navigate_detail_down();
                             }
                         }
                         KeyCode::PageDown => {
@@ -163,6 +163,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         KeyCode::Char('r') if app.screen == Screen::Main => {
                             app.screen = Screen::Loading;
                             spawn_scan(tx.clone());
+                        }
+                        KeyCode::Enter => {
+                            if app.active_pane == app::Pane::Detail
+                                && app.detail_focus == app::DetailFocus::Actions
+                            {
+                                app.open_selected_app();
+                            }
                         }
                         _ => {}
                     }
