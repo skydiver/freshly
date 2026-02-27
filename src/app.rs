@@ -143,6 +143,7 @@ impl App {
     }
 
     pub fn select_next(&mut self) {
+        self.status_message = None;
         if !self.filtered_indices.is_empty() {
             self.selected_index =
                 (self.selected_index + 1).min(self.filtered_indices.len() - 1);
@@ -153,6 +154,7 @@ impl App {
     }
 
     pub fn select_previous(&mut self) {
+        self.status_message = None;
         self.selected_index = self.selected_index.saturating_sub(1);
         self.detail_scroll = 0;
         self.detail_focus = DetailFocus::Actions;
@@ -199,6 +201,7 @@ impl App {
     const DETAIL_ACTION_COUNT: usize = 1; // "Open App"
 
     pub fn navigate_detail_down(&mut self) {
+        self.status_message = None;
         match self.detail_focus {
             DetailFocus::Scroll => {
                 // Switch from scrolling to actions
@@ -215,6 +218,7 @@ impl App {
     }
 
     pub fn navigate_detail_up(&mut self) {
+        self.status_message = None;
         match self.detail_focus {
             DetailFocus::Actions => {
                 if self.selected_action > 0 {
@@ -514,6 +518,15 @@ mod tests {
         app.open_selected_app();
         // Should not set a status error (the open command should succeed on macOS)
         assert!(app.status_message.is_none() || !app.status_message.as_ref().unwrap().contains("Failed"));
+    }
+
+    #[test]
+    fn test_status_message_clears_on_navigation() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.status_message = Some("error".to_string());
+        app.select_next();
+        assert!(app.status_message.is_none());
     }
 
     #[test]
