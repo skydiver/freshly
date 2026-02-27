@@ -84,6 +84,7 @@ pub struct App {
     pub total_scanned: usize,
     pub error_count: usize,
     pub should_quit: bool,
+    pub status_message: Option<String>,
 }
 
 impl App {
@@ -104,6 +105,7 @@ impl App {
             total_scanned: 0,
             error_count: 0,
             should_quit: false,
+            status_message: None,
         }
     }
 
@@ -119,6 +121,21 @@ impl App {
         self.filtered_indices
             .get(self.selected_index)
             .and_then(|&i| self.apps.get(i))
+    }
+
+    pub fn open_selected_app(&mut self) {
+        let Some(selected) = self.selected_app() else {
+            return;
+        };
+        let path = selected.app_path.clone();
+        match std::process::Command::new("open").arg(&path).spawn() {
+            Ok(_) => {
+                self.status_message = None;
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to open: {}", e));
+            }
+        }
     }
 
     pub fn outdated_count(&self) -> usize {
@@ -484,5 +501,26 @@ mod tests {
         app.detail_focus = DetailFocus::Scroll;
         app.page_up(1);
         assert_eq!(app.detail_focus, DetailFocus::Actions);
+    }
+
+    #[test]
+    fn test_open_selected_app_sets_no_error_on_valid_path() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        // This test uses a known-good macOS path
+        app.apps[0].app_path = std::path::PathBuf::from("/System/Applications/Calculator.app");
+        app.filtered_indices = vec![0];
+        app.selected_index = 0;
+        app.open_selected_app();
+        // Should not set a status error (the open command should succeed on macOS)
+        assert!(app.status_message.is_none() || !app.status_message.as_ref().unwrap().contains("Failed"));
+    }
+
+    #[test]
+    fn test_open_selected_app_no_crash_when_no_selection() {
+        let mut app = App::new();
+        // No results loaded, no selected app
+        app.open_selected_app();
+        // Should not panic, just no-op
     }
 }
