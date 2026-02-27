@@ -178,6 +178,41 @@ impl App {
         self.apply_filter_and_sort();
     }
 
+    /// Number of action items in the detail pane.
+    const DETAIL_ACTION_COUNT: usize = 1; // "Open App"
+
+    pub fn navigate_detail_down(&mut self) {
+        match self.detail_focus {
+            DetailFocus::Scroll => {
+                // Switch from scrolling to actions
+                self.detail_focus = DetailFocus::Actions;
+                self.selected_action = 0;
+            }
+            DetailFocus::Actions => {
+                // Move to next action (currently only one, so clamp)
+                if self.selected_action + 1 < Self::DETAIL_ACTION_COUNT {
+                    self.selected_action += 1;
+                }
+            }
+        }
+    }
+
+    pub fn navigate_detail_up(&mut self) {
+        match self.detail_focus {
+            DetailFocus::Actions => {
+                if self.selected_action > 0 {
+                    self.selected_action -= 1;
+                } else {
+                    // At first action, switch to scroll mode
+                    self.detail_focus = DetailFocus::Scroll;
+                }
+            }
+            DetailFocus::Scroll => {
+                self.detail_scroll = self.detail_scroll.saturating_sub(1);
+            }
+        }
+    }
+
     pub fn scroll_detail_down(&mut self) {
         self.detail_scroll = self.detail_scroll.saturating_add(1);
     }
@@ -381,6 +416,73 @@ mod tests {
         app.select_next(); // move to index 1
         app.detail_focus = DetailFocus::Scroll;
         app.select_previous();
+        assert_eq!(app.detail_focus, DetailFocus::Actions);
+    }
+
+    #[test]
+    fn test_navigate_detail_down_from_scroll_to_actions() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.active_pane = Pane::Detail;
+        app.detail_focus = DetailFocus::Scroll;
+        app.navigate_detail_down();
+        assert_eq!(app.detail_focus, DetailFocus::Actions);
+        assert_eq!(app.selected_action, 0);
+    }
+
+    #[test]
+    fn test_navigate_detail_up_from_actions_to_scroll() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.active_pane = Pane::Detail;
+        app.detail_focus = DetailFocus::Actions;
+        app.selected_action = 0;
+        app.navigate_detail_up();
+        assert_eq!(app.detail_focus, DetailFocus::Scroll);
+    }
+
+    #[test]
+    fn test_navigate_detail_down_in_actions_stays() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.active_pane = Pane::Detail;
+        app.detail_focus = DetailFocus::Actions;
+        app.selected_action = 0;
+        // Only one action exists, so down stays at 0
+        app.navigate_detail_down();
+        assert_eq!(app.detail_focus, DetailFocus::Actions);
+        assert_eq!(app.selected_action, 0);
+    }
+
+    #[test]
+    fn test_navigate_detail_up_in_scroll_scrolls() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.active_pane = Pane::Detail;
+        app.detail_focus = DetailFocus::Scroll;
+        app.detail_scroll = 5;
+        app.navigate_detail_up();
+        assert_eq!(app.detail_scroll, 4);
+        assert_eq!(app.detail_focus, DetailFocus::Scroll);
+    }
+
+    #[test]
+    fn test_detail_focus_resets_on_page_down() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.detail_focus = DetailFocus::Scroll;
+        app.page_down(1);
+        assert_eq!(app.detail_focus, DetailFocus::Actions);
+        assert_eq!(app.selected_action, 0);
+    }
+
+    #[test]
+    fn test_detail_focus_resets_on_page_up() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.select_next(); // move off 0 so page_up has effect
+        app.detail_focus = DetailFocus::Scroll;
+        app.page_up(1);
         assert_eq!(app.detail_focus, DetailFocus::Actions);
     }
 }
