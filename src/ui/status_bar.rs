@@ -50,13 +50,20 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             ));
         }
 
-        let summary = format!(
-            "  {} of {} apps need updating · sort: {}",
-            app.outdated_count(),
-            app.apps.len(),
-            app.sort.label()
-        );
-        spans.push(Span::styled(summary, Style::default().fg(Color::Yellow)));
+        if let Some(ref msg) = app.status_message {
+            spans.push(Span::styled(
+                format!("  {}", msg),
+                Style::default().fg(Color::Red),
+            ));
+        } else {
+            let summary = format!(
+                "  {} of {} apps need updating · sort: {}",
+                app.outdated_count(),
+                app.apps.len(),
+                app.sort.label()
+            );
+            spans.push(Span::styled(summary, Style::default().fg(Color::Yellow)));
+        }
 
         if app.error_count > 0 {
             spans.push(Span::styled(
