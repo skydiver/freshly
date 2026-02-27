@@ -13,6 +13,12 @@ pub enum Pane {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum DetailFocus {
+    Scroll,
+    Actions,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum FilterMode {
     All,
     Outdated,
@@ -69,6 +75,8 @@ pub struct App {
     pub filtered_indices: Vec<usize>,
     pub selected_index: usize,
     pub detail_scroll: u16,
+    pub detail_focus: DetailFocus,
+    pub selected_action: usize,
     pub filter: FilterMode,
     pub sort: SortMode,
     pub search_query: String,
@@ -87,6 +95,8 @@ impl App {
             filtered_indices: Vec::new(),
             selected_index: 0,
             detail_scroll: 0,
+            detail_focus: DetailFocus::Actions,
+            selected_action: 0,
             filter: FilterMode::Outdated,
             sort: SortMode::Name,
             search_query: String::new(),
@@ -120,12 +130,16 @@ impl App {
             self.selected_index =
                 (self.selected_index + 1).min(self.filtered_indices.len() - 1);
             self.detail_scroll = 0;
+            self.detail_focus = DetailFocus::Actions;
+            self.selected_action = 0;
         }
     }
 
     pub fn select_previous(&mut self) {
         self.selected_index = self.selected_index.saturating_sub(1);
         self.detail_scroll = 0;
+        self.detail_focus = DetailFocus::Actions;
+        self.selected_action = 0;
     }
 
     pub fn page_down(&mut self, page_size: usize) {
@@ -133,12 +147,16 @@ impl App {
             self.selected_index =
                 (self.selected_index + page_size).min(self.filtered_indices.len() - 1);
             self.detail_scroll = 0;
+            self.detail_focus = DetailFocus::Actions;
+            self.selected_action = 0;
         }
     }
 
     pub fn page_up(&mut self, page_size: usize) {
         self.selected_index = self.selected_index.saturating_sub(page_size);
         self.detail_scroll = 0;
+        self.detail_focus = DetailFocus::Actions;
+        self.selected_action = 0;
     }
 
     pub fn toggle_pane(&mut self) {
@@ -336,5 +354,33 @@ mod tests {
         let mut app = App::new();
         app.set_results(sample_result());
         assert_eq!(app.outdated_count(), 2);
+    }
+
+    #[test]
+    fn test_initial_detail_focus() {
+        let app = App::new();
+        assert_eq!(app.detail_focus, DetailFocus::Actions);
+        assert_eq!(app.selected_action, 0);
+    }
+
+    #[test]
+    fn test_detail_focus_resets_on_select_next() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.detail_focus = DetailFocus::Scroll;
+        app.select_next();
+        assert_eq!(app.detail_focus, DetailFocus::Actions);
+        assert_eq!(app.selected_action, 0);
+        assert_eq!(app.detail_scroll, 0);
+    }
+
+    #[test]
+    fn test_detail_focus_resets_on_select_previous() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.select_next(); // move to index 1
+        app.detail_focus = DetailFocus::Scroll;
+        app.select_previous();
+        assert_eq!(app.detail_focus, DetailFocus::Actions);
     }
 }
