@@ -17,7 +17,7 @@ use std::io;
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
-#[command(name = "freshly", about = "macOS app update checker")]
+#[command(name = "freshly", version, about = "macOS app update checker")]
 struct Cli {
     /// Filter by source (appstore, sparkle, homebrew)
     #[arg(long)]

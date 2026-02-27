@@ -9,3 +9,6 @@
 
 # Environment
 .env*
+
+# Build artifacts
+freshly.zip

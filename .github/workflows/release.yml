@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  BINARY_NAME: freshly
+
+jobs:
+  release:
+    name: Build, sign, and release
+    runs-on: macos-latest
+    env:
+      HAS_TAP_TOKEN: ${{ secrets.TAP_REPO_TOKEN != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "tag=v$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Cargo.toml version matches tag
+        run: |
+          CARGO_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$CARGO_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::Cargo.toml version ($CARGO_VERSION) does not match tag (${{ steps.version.outputs.version }})"
+            exit 1
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Build for aarch64-apple-darwin
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Build for x86_64-apple-darwin
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Create universal binary
+        run: |
+          lipo -create \
+            target/aarch64-apple-darwin/release/${{ env.BINARY_NAME }} \
+            target/x86_64-apple-darwin/release/${{ env.BINARY_NAME }} \
+            -output ${{ env.BINARY_NAME }}
+          file ${{ env.BINARY_NAME }}
+          lipo -info ${{ env.BINARY_NAME }}
+
+      - name: Import signing certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          echo "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          # Allow codesign to access the keychain
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+      - name: Code sign binary
+        run: |
+          codesign --force --options runtime \
+            --sign "Developer ID Application: FLYDEV S.A.S. (F548563X8C)" \
+            --timestamp \
+            ${{ env.BINARY_NAME }}
+          codesign --verify --verbose ${{ env.BINARY_NAME }}
+
+      - name: Notarize binary
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          # Notarization requires a zip archive
+          zip "${BINARY_NAME}-notarize.zip" "$BINARY_NAME"
+          xcrun notarytool submit "${BINARY_NAME}-notarize.zip" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
+          rm "${BINARY_NAME}-notarize.zip"
+
+      - name: Package archive
+        id: archive
+        run: |
+          ARCHIVE="${BINARY_NAME}-${{ steps.version.outputs.tag }}-universal-apple-darwin.tar.gz"
+          tar czf "$ARCHIVE" "$BINARY_NAME"
+          SHA256=$(shasum -a 256 "$ARCHIVE" | cut -d ' ' -f 1)
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "SHA256: $SHA256"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "${{ steps.archive.outputs.archive }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes
+
+      - name: Update Homebrew tap
+        if: env.HAS_TAP_TOKEN == 'true'
+        env:
+          TAP_REPO_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA256="${{ steps.archive.outputs.sha256 }}"
+          ARCHIVE="${{ steps.archive.outputs.archive }}"
+          URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/${ARCHIVE}"
+
+          git clone "https://x-access-token:${TAP_REPO_TOKEN}@github.com/skydiver/homebrew-freshly.git" tap
+
+          cat > tap/Formula/freshly.rb << FORMULA
+          class Freshly < Formula
+            desc "Fast, terminal-based update checker for macOS applications"
+            homepage "https://github.com/skydiver/freshly"
+            url "${URL}"
+            sha256 "${SHA256}"
+            version "${VERSION}"
+            license "MIT"
+
+            def install
+              bin.install "freshly"
+            end
+
+            test do
+              assert_match "freshly", shell_output("#{bin}/freshly --version")
+            end
+          end
+          FORMULA
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/freshly.rb
+          git commit -m "Update freshly to ${VERSION}"
+          git push
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
+          rm -f "$RUNNER_TEMP/certificate.p12"

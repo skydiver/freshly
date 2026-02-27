@@ -3,6 +3,10 @@ name = "freshly"
 version = "0.1.0"
 edition = "2021"
 description = "macOS app update checker TUI"
+license = "MIT"
+repository = "https://github.com/skydiver/freshly"
+homepage = "https://github.com/skydiver/freshly"
+authors = ["Martín M."]
 
 [dependencies]
 ratatui = "0.30"

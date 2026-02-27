@@ -25,6 +25,12 @@ freshly scans your `/Applications` folder and checks for available updates acros
 
 ## Installation
 
+### Homebrew
+
+```bash
+brew install skydiver/freshly/freshly
+```
+
 ### From source
 
 Requires [Rust](https://www.rust-lang.org/tools/install) 1.75 or later.
