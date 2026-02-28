@@ -98,6 +98,12 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
 
     if let Some(ref changelog) = selected.changelog {
+        let divider_width = area.width.saturating_sub(4) as usize;
+        lines.push(Line::from(Span::styled(
+            format!(" {} ", "─".repeat(divider_width)),
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::raw(" "),
             Span::styled(
