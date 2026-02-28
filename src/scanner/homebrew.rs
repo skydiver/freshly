@@ -1,24 +1,93 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::time::Duration;
+use tokio::sync::Mutex;
+use tokio::time::Instant;
 
 use crate::model::{is_newer_version, AppInfo, DiscoveredApp, ScanError, ScanResult, Source};
-use crate::scanner::{HttpClient, Scanner};
+use crate::scanner::{ConditionalResponse, HttpClient, Scanner};
 
 const CASK_API_URL: &str = "https://formulae.brew.sh/api/cask.json";
+const CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
+
+struct CachedCatalog {
+    entries: Vec<CaskEntry>,
+    etag: Option<String>,
+    fetched_at: Instant,
+}
+
+pub struct CatalogCache {
+    inner: Mutex<Option<CachedCatalog>>,
+}
+
+impl CatalogCache {
+    pub fn new() -> Self {
+        Self {
+            inner: Mutex::new(None),
+        }
+    }
+
+    async fn get_or_fetch(&self, http: &impl HttpClient) -> Result<Vec<CaskEntry>, String> {
+        let mut guard = self.inner.lock().await;
+
+        if let Some(cached) = guard.as_ref() {
+            if cached.fetched_at.elapsed() < CACHE_TTL {
+                return Ok(cached.entries.clone());
+            }
+
+            // Cache expired — try conditional request
+            let etag = cached.etag.as_deref();
+            match http.get_json_conditional(CASK_API_URL, etag).await? {
+                ConditionalResponse::NotModified => {
+                    // Data unchanged — refresh timestamp
+                    guard.as_mut().unwrap().fetched_at = Instant::now();
+                    return Ok(guard.as_ref().unwrap().entries.clone());
+                }
+                ConditionalResponse::Fresh { data, etag } => {
+                    *guard = Some(CachedCatalog {
+                        entries: data,
+                        etag,
+                        fetched_at: Instant::now(),
+                    });
+                    return Ok(guard.as_ref().unwrap().entries.clone());
+                }
+            }
+        }
+
+        // No cache — fresh fetch
+        let response: ConditionalResponse<Vec<CaskEntry>> =
+            http.get_json_conditional(CASK_API_URL, None).await?;
+        match response {
+            ConditionalResponse::Fresh { data, etag } => {
+                *guard = Some(CachedCatalog {
+                    entries: data,
+                    etag,
+                    fetched_at: Instant::now(),
+                });
+                Ok(guard.as_ref().unwrap().entries.clone())
+            }
+            ConditionalResponse::NotModified => {
+                // Shouldn't happen without an etag, but handle gracefully
+                Err("Unexpected 304 without prior cache".to_string())
+            }
+        }
+    }
+}
 
 pub struct HomebrewScanner<'a, H: HttpClient> {
     http: &'a H,
+    cache: &'a CatalogCache,
 }
 
 impl<'a, H: HttpClient> HomebrewScanner<'a, H> {
-    pub fn new(http: &'a H) -> Self {
-        Self { http }
+    pub fn new(http: &'a H, cache: &'a CatalogCache) -> Self {
+        Self { http, cache }
     }
 }
 
 /// A single cask entry from the Homebrew Cask API.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct CaskEntry {
     token: String,
     name: Vec<String>,
@@ -28,7 +97,7 @@ struct CaskEntry {
 
 /// Artifacts are heterogeneous objects in the JSON array.
 /// We only care about the ones containing `"app": ["Foo.app"]`.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(untagged)]
 enum CaskArtifact {
     App { app: Vec<String> },
@@ -78,7 +147,7 @@ impl<H: HttpClient> Scanner for HomebrewScanner<'_, H> {
             errors: Vec::new(),
         };
 
-        let casks: Vec<CaskEntry> = match self.http.get_json(CASK_API_URL).await {
+        let casks: Vec<CaskEntry> = match self.cache.get_or_fetch(self.http).await {
             Ok(c) => c,
             Err(e) => {
                 result.errors.push(ScanError {
@@ -210,7 +279,8 @@ mod tests {
     async fn test_scan_finds_update() {
         let json = cask_json("firefox", "Mozilla Firefox", "125.0.1", "Firefox.app");
         let http = MockHttpClient::with_json(&json);
-        let scanner = HomebrewScanner::new(&http);
+        let cache = CatalogCache::new();
+        let scanner = HomebrewScanner::new(&http, &cache);
         let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
 
         let result = scanner.scan(&apps).await;
@@ -228,7 +298,8 @@ mod tests {
     async fn test_scan_no_update() {
         let json = cask_json("firefox", "Mozilla Firefox", "124.0", "Firefox.app");
         let http = MockHttpClient::with_json(&json);
-        let scanner = HomebrewScanner::new(&http);
+        let cache = CatalogCache::new();
+        let scanner = HomebrewScanner::new(&http, &cache);
         let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
 
         let result = scanner.scan(&apps).await;
@@ -241,7 +312,8 @@ mod tests {
     async fn test_unmatched_app_skipped() {
         let json = cask_json("firefox", "Mozilla Firefox", "125.0", "Firefox.app");
         let http = MockHttpClient::with_json(&json);
-        let scanner = HomebrewScanner::new(&http);
+        let cache = CatalogCache::new();
+        let scanner = HomebrewScanner::new(&http, &cache);
         // App filename doesn't match any cask
         let apps = vec![make_app("MyCustomApp", "com.custom.app", "1.0.0")];
 
@@ -254,7 +326,8 @@ mod tests {
     #[tokio::test]
     async fn test_api_failure() {
         let http = MockHttpClient::with_error("Network error");
-        let scanner = HomebrewScanner::new(&http);
+        let cache = CatalogCache::new();
+        let scanner = HomebrewScanner::new(&http, &cache);
         let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
 
         let result = scanner.scan(&apps).await;
@@ -273,7 +346,8 @@ mod tests {
             "Visual Studio Code.app",
         );
         let http = MockHttpClient::with_json(&json);
-        let scanner = HomebrewScanner::new(&http);
+        let cache = CatalogCache::new();
+        let scanner = HomebrewScanner::new(&http, &cache);
         let apps = vec![make_app(
             "Visual Studio Code",
             "com.microsoft.VSCode",
@@ -290,7 +364,8 @@ mod tests {
     async fn test_uses_real_bundle_id() {
         let json = cask_json("firefox", "Mozilla Firefox", "125.0", "Firefox.app");
         let http = MockHttpClient::with_json(&json);
-        let scanner = HomebrewScanner::new(&http);
+        let cache = CatalogCache::new();
+        let scanner = HomebrewScanner::new(&http, &cache);
         let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
 
         let result = scanner.scan(&apps).await;

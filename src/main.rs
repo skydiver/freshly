@@ -16,6 +16,7 @@ use futures::StreamExt;
 use model::{AppInfo, ScanResult, Source};
 use ratatui::{backend::CrosstermBackend, layout::Position, Terminal};
 use std::io;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
@@ -34,7 +35,10 @@ struct Cli {
     verbose: bool,
 }
 
-fn spawn_scan(tx: tokio::sync::mpsc::Sender<ScanResult>) {
+fn spawn_scan(
+    tx: tokio::sync::mpsc::Sender<ScanResult>,
+    brew_cache: Arc<scanner::homebrew::CatalogCache>,
+) {
     tokio::spawn(async move {
         let apps = tokio::task::spawn_blocking(|| {
             discovery::discover_apps(std::path::Path::new("/Applications"))
@@ -42,7 +46,7 @@ fn spawn_scan(tx: tokio::sync::mpsc::Sender<ScanResult>) {
         .await
         .unwrap_or_default();
         let http = scanner::ReqwestClient::new();
-        let result = scanner::run_scanners(&apps, &http).await;
+        let result = scanner::run_scanners(&apps, &http, &brew_cache).await;
         let _ = tx.send(result).await;
     });
 }
@@ -60,10 +64,12 @@ fn filter_by_source(apps: Vec<AppInfo>, source: &Option<String>) -> Vec<AppInfo>
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
+    let brew_cache = Arc::new(scanner::homebrew::CatalogCache::new());
+
     if cli.json {
         let apps = discovery::discover_apps(std::path::Path::new("/Applications"));
         let http = scanner::ReqwestClient::new();
-        let result = scanner::run_scanners(&apps, &http).await;
+        let result = scanner::run_scanners(&apps, &http, &brew_cache).await;
 
         let output = filter_by_source(result.apps, &cli.source);
         println!("{}", serde_json::to_string_pretty(&output)?);
@@ -100,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ScanResult>(1);
-    spawn_scan(tx.clone());
+    spawn_scan(tx.clone(), Arc::clone(&brew_cache));
 
     let mut event_reader = EventStream::new();
 
@@ -181,7 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 KeyCode::Char('r') if app.screen == Screen::Main => {
                                     app.screen = Screen::Loading;
-                                    spawn_scan(tx.clone());
+                                    spawn_scan(tx.clone(), Arc::clone(&brew_cache));
                                 }
                                 KeyCode::Enter => {
                                     if app.active_pane == app::Pane::Detail

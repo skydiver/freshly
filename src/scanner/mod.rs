@@ -6,6 +6,14 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use crate::model::{AppInfo, DiscoveredApp, ScanResult};
 
+/// Result of a conditional HTTP request (ETag-based).
+pub enum ConditionalResponse<T> {
+    /// Server returned 200 with new data (and optionally an ETag).
+    Fresh { data: T, etag: Option<String> },
+    /// Server returned 304 — cached data is still valid.
+    NotModified,
+}
+
 #[async_trait]
 pub trait Scanner {
     fn name(&self) -> &str;
@@ -17,6 +25,17 @@ pub trait Scanner {
 pub trait HttpClient: Send + Sync {
     async fn get_text(&self, url: &str) -> Result<String, String>;
     async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, String>;
+
+    /// Conditional GET using an ETag. Default delegates to `get_json` (always Fresh).
+    async fn get_json_conditional<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        etag: Option<&str>,
+    ) -> Result<ConditionalResponse<T>, String> {
+        let _ = etag; // default ignores etag
+        let data = self.get_json(url).await?;
+        Ok(ConditionalResponse::Fresh { data, etag: None })
+    }
 }
 
 /// Maximum response body size (50 MB) — protects against memory exhaustion.
@@ -79,16 +98,59 @@ impl HttpClient for ReqwestClient {
             .await
             .map_err(|e| format!("Failed to parse JSON: {}", e))
     }
+
+    async fn get_json_conditional<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        etag: Option<&str>,
+    ) -> Result<ConditionalResponse<T>, String> {
+        let mut request = self.client.get(url);
+        if let Some(etag_value) = etag {
+            request = request.header(reqwest::header::IF_NONE_MATCH, etag_value);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+            return Ok(ConditionalResponse::NotModified);
+        }
+
+        if let Some(len) = response.content_length() {
+            if len > MAX_RESPONSE_BYTES {
+                return Err(format!("Response too large: {} bytes", len));
+            }
+        }
+
+        let response_etag = response
+            .headers()
+            .get(reqwest::header::ETAG)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        let data = response
+            .json::<T>()
+            .await
+            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+        Ok(ConditionalResponse::Fresh {
+            data,
+            etag: response_etag,
+        })
+    }
 }
 
 /// Run all three scanners concurrently and merge results.
 pub async fn run_scanners(
     apps: &[DiscoveredApp],
     http: &impl HttpClient,
+    brew_cache: &homebrew::CatalogCache,
 ) -> ScanResult {
     let appstore = appstore::AppStoreScanner::new(http);
     let sparkle = sparkle::SparkleScanner::new(http);
-    let homebrew = homebrew::HomebrewScanner::new(http);
+    let homebrew = homebrew::HomebrewScanner::new(http, brew_cache);
 
     let (r1, r2, r3) = tokio::join!(
         appstore.scan(apps),
