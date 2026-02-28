@@ -41,7 +41,7 @@ pub struct DiscoveredApp {
     pub sparkle_feed_url: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ScanError {
     pub scanner: String,
     pub app_name: Option<String>,

@@ -65,9 +65,21 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             spans.push(Span::styled(summary, Style::default().fg(Color::Yellow)));
         }
 
-        if app.error_count > 0 {
+        if app.error_count() > 0 {
+            spans.push(Span::styled("  ", Style::default()));
             spans.push(Span::styled(
-                format!(" ({} could not be checked)", app.error_count),
+                " e ",
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(
+                format!(
+                    " {} scan {}",
+                    app.error_count(),
+                    if app.error_count() == 1 { "error" } else { "errors" }
+                ),
                 Style::default().fg(Color::Red),
             ));
         }

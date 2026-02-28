@@ -1,5 +1,6 @@
 pub mod app_detail;
 pub mod app_list;
+pub mod error_overlay;
 pub mod loading;
 pub mod status_bar;
 
@@ -44,4 +45,8 @@ fn draw_main(f: &mut Frame, app: &App) {
     app_list::draw(f, app, layout.list);
     app_detail::draw(f, app, layout.detail);
     status_bar::draw(f, app, layout.status_bar);
+
+    if app.show_errors {
+        error_overlay::draw(f, app);
+    }
 }

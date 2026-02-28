@@ -1,4 +1,4 @@
-use crate::model::{AppInfo, ScanResult};
+use crate::model::{AppInfo, ScanError, ScanResult};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
@@ -82,7 +82,8 @@ pub struct App {
     pub search_query: String,
     pub is_searching: bool,
     pub total_scanned: usize,
-    pub error_count: usize,
+    pub errors: Vec<ScanError>,
+    pub show_errors: bool,
     pub should_quit: bool,
     pub status_message: Option<String>,
 }
@@ -103,18 +104,28 @@ impl App {
             search_query: String::new(),
             is_searching: false,
             total_scanned: 0,
-            error_count: 0,
+            errors: Vec::new(),
+            show_errors: false,
             should_quit: false,
             status_message: None,
         }
     }
 
     pub fn set_results(&mut self, result: ScanResult) {
-        self.error_count = result.errors.len();
-        self.total_scanned = result.apps.len() + self.error_count;
+        self.total_scanned = result.apps.len() + result.errors.len();
+        self.errors = result.errors;
+        self.show_errors = false;
         self.apps = result.apps;
         self.apply_filter_and_sort();
         self.screen = Screen::Main;
+    }
+
+    pub fn error_count(&self) -> usize {
+        self.errors.len()
+    }
+
+    pub fn toggle_errors(&mut self) {
+        self.show_errors = !self.show_errors;
     }
 
     pub fn selected_app(&self) -> Option<&AppInfo> {
@@ -508,16 +519,17 @@ mod tests {
     }
 
     #[test]
-    fn test_open_selected_app_sets_no_error_on_valid_path() {
+    fn test_open_selected_app_clears_status_on_success() {
         let mut app = App::new();
         app.set_results(sample_result());
-        // This test uses a known-good macOS path
-        app.apps[0].app_path = std::path::PathBuf::from("/System/Applications/Calculator.app");
+        // Use /dev/null — `open` can handle it without launching a visible app
+        app.apps[0].app_path = std::path::PathBuf::from("/dev/null");
         app.filtered_indices = vec![0];
         app.selected_index = 0;
+        app.status_message = Some("previous error".to_string());
         app.open_selected_app();
-        // Should not set a status error (the open command should succeed on macOS)
-        assert!(app.status_message.is_none() || !app.status_message.as_ref().unwrap().contains("Failed"));
+        // open /dev/null succeeds, so status_message should be cleared
+        assert!(app.status_message.is_none());
     }
 
     #[test]

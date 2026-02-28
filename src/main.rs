@@ -117,7 +117,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(Ok(event)) = event_reader.next() => {
                 match event {
                     Event::Key(key) => {
-                        if app.is_searching {
+                        if app.show_errors {
+                            match key.code {
+                                KeyCode::Esc | KeyCode::Char('e') | KeyCode::Char('q') => {
+                                    app.show_errors = false;
+                                }
+                                _ => {}
+                            }
+                        } else if app.is_searching {
                             match key.code {
                                 KeyCode::Esc => app.toggle_search(),
                                 KeyCode::Backspace => app.search_backspace(),
@@ -169,6 +176,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 KeyCode::Char('f') => app.cycle_filter(),
                                 KeyCode::Char('s') => app.cycle_sort(),
                                 KeyCode::Char('/') => app.toggle_search(),
+                                KeyCode::Char('e') if app.error_count() > 0 => {
+                                    app.toggle_errors();
+                                }
                                 KeyCode::Char('r') if app.screen == Screen::Main => {
                                     app.screen = Screen::Loading;
                                     spawn_scan(tx.clone());
