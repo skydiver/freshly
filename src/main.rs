@@ -135,6 +135,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     spawn_scan(tx.clone(), Arc::clone(&brew_cache));
 
     let mut event_reader = EventStream::new();
+    let mut brew_rx: Option<tokio::sync::mpsc::Receiver<updater::BrewOutputMsg>> = None;
+    let mut brew_child: Option<std::process::Child> = None;
 
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
@@ -151,10 +153,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 result.apps = filter_by_source(result.apps, &cli.source);
                 app.set_results(result);
             }
+            msg = async {
+                match brew_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                match msg {
+                    Some(updater::BrewOutputMsg::Line(line)) => {
+                        if let Some(ref mut overlay) = app.brew_overlay {
+                            overlay.push_line(&line);
+                        }
+                    }
+                    None => {
+                        // Channel closed — reader threads done
+                        brew_rx = None;
+                    }
+                }
+            }
             Some(Ok(event)) = event_reader.next() => {
                 match event {
                     Event::Key(key) => {
-                        if app.show_errors {
+                        if let Some(overlay) = app.brew_overlay.as_mut() {
+                            match key.code {
+                                KeyCode::Esc => {
+                                    if overlay.is_done() {
+                                        // Dismiss overlay
+                                        let _was_success = overlay.status == updater::BrewStatus::Succeeded;
+                                        app.brew_overlay = None;
+                                        brew_rx = None;
+                                        brew_child = None;
+                                        // TODO Task 7: single-app re-scan if _was_success
+                                    } else {
+                                        overlay.request_cancel();
+                                    }
+                                }
+                                KeyCode::Char('y') => {
+                                    if overlay.status == updater::BrewStatus::Confirming {
+                                        overlay.confirm_cancel();
+                                        if let Some(mut child) = brew_child.take() {
+                                            let _ = child.kill();
+                                            let _ = child.wait();
+                                        }
+                                    }
+                                }
+                                KeyCode::Char('n') => {
+                                    if overlay.status == updater::BrewStatus::Confirming {
+                                        overlay.abort_cancel();
+                                    }
+                                }
+                                _ => {}
+                            }
+                        } else if app.show_errors {
                             match key.code {
                                 KeyCode::Esc | KeyCode::Char('e') | KeyCode::Char('q') => {
                                     app.show_errors = false;
@@ -255,8 +305,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                             }
                                                         }
                                                     }
-                                                    app::UpdateResult::BrewUpgrade { .. } => {
-                                                        // TODO: Task 6 — spawn brew overlay
+                                                    app::UpdateResult::BrewUpgrade { cask_token, app_name } => {
+                                                        if !updater::brew_exists() {
+                                                            app.status_message = Some(
+                                                                "Homebrew not found — install from brew.sh".to_string()
+                                                            );
+                                                        } else {
+                                                            match updater::spawn_brew_upgrade(&cask_token) {
+                                                                Ok((rx, child)) => {
+                                                                    app.brew_overlay = Some(
+                                                                        updater::BrewOverlay::new(cask_token, app_name)
+                                                                    );
+                                                                    brew_rx = Some(rx);
+                                                                    brew_child = Some(child);
+                                                                }
+                                                                Err(e) => {
+                                                                    app.status_message = Some(format!("Failed to start brew: {}", e));
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                     app::UpdateResult::None => {}
                                                 }
@@ -286,11 +353,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             _ = tick => {
-                // Tick expired — just redraw (keeps spinner animating)
+                // Check brew process exit
+                if let Some(ref mut child) = brew_child {
+                    if let Ok(Some(status)) = child.try_wait() {
+                        if let Some(ref mut overlay) = app.brew_overlay {
+                            overlay.finish(status.success());
+                        }
+                        brew_child = None;
+                        brew_rx = None;
+                    }
+                }
             }
         }
 
         if app.should_quit {
+            if let Some(mut child) = brew_child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
             break;
         }
     }

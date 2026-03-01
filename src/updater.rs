@@ -1,9 +1,63 @@
+/// Check if the `brew` binary is available on PATH.
+pub fn brew_exists() -> bool {
+    std::process::Command::new("brew")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Spawn `brew upgrade --cask <token>` and return a receiver for output messages
+/// and the child process handle (for cancellation via kill).
+pub fn spawn_brew_upgrade(
+    cask_token: &str,
+) -> Result<(tokio::sync::mpsc::Receiver<BrewOutputMsg>, std::process::Child), String> {
+    let mut child = std::process::Command::new("brew")
+        .args(["upgrade", "--cask", cask_token])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to start brew: {}", e))?;
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<BrewOutputMsg>(100);
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let tx_out = tx.clone();
+    if let Some(stdout) = stdout {
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            let reader = std::io::BufReader::new(stdout);
+            for line in reader.lines().map_while(Result::ok) {
+                if tx_out.blocking_send(BrewOutputMsg::Line(line)).is_err() {
+                    break;
+                }
+            }
+        });
+    }
+
+    if let Some(stderr) = stderr {
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            let reader = std::io::BufReader::new(stderr);
+            for line in reader.lines().map_while(Result::ok) {
+                if tx.blocking_send(BrewOutputMsg::Line(line)).is_err() {
+                    break;
+                }
+            }
+        });
+    }
+
+    Ok((rx, child))
+}
+
 /// Messages sent from the brew process reader task to the main loop.
 pub enum BrewOutputMsg {
-    /// A line of output from the brew process.
+    /// A line of output from the brew process (stdout or stderr).
     Line(String),
-    /// The process exited with the given success status.
-    Finished(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,5 +218,12 @@ mod tests {
         assert_eq!(overlay.status, BrewStatus::Cancelled);
         overlay.finish(true); // should be ignored — already in terminal state
         assert_eq!(overlay.status, BrewStatus::Cancelled);
+    }
+
+    #[test]
+    fn test_brew_exists_does_not_panic() {
+        // System-level test — just verify it doesn't panic.
+        // Result depends on whether brew is installed on this machine.
+        let _ = crate::updater::brew_exists();
     }
 }
