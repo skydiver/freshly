@@ -2,6 +2,7 @@ mod app;
 mod discovery;
 mod model;
 mod scanner;
+mod settings;
 mod ui;
 
 use app::{App, Screen};
@@ -64,7 +65,14 @@ fn filter_by_source(apps: Vec<AppInfo>, source: &Option<String>) -> Vec<AppInfo>
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    let brew_cache = Arc::new(scanner::homebrew::CatalogCache::new());
+    let home = std::env::var("HOME").expect("HOME not set");
+    let brew_cache = Arc::new(scanner::homebrew::CatalogCache::new(
+        std::path::PathBuf::from(format!("{}/Library/Caches/freshly/brew.cache", home)),
+        std::path::PathBuf::from(format!(
+            "{}/Library/Application Support/freshly/settings.json",
+            home
+        )),
+    ));
 
     if cli.json {
         let apps = discovery::discover_apps(std::path::Path::new("/Applications"));

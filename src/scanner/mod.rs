@@ -7,9 +7,9 @@ use async_trait::async_trait;
 use crate::model::{AppInfo, DiscoveredApp, ScanResult};
 
 /// Result of a conditional HTTP request (ETag-based).
-pub enum ConditionalResponse<T> {
+pub enum ConditionalResponse {
     /// Server returned 200 with new data (and optionally an ETag).
-    Fresh { data: T, etag: Option<String> },
+    Fresh { body: String, etag: Option<String> },
     /// Server returned 304 — cached data is still valid.
     NotModified,
 }
@@ -26,15 +26,15 @@ pub trait HttpClient: Send + Sync {
     async fn get_text(&self, url: &str) -> Result<String, String>;
     async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, String>;
 
-    /// Conditional GET using an ETag. Default delegates to `get_json` (always Fresh).
-    async fn get_json_conditional<T: serde::de::DeserializeOwned>(
+    /// Conditional GET using an ETag. Default delegates to `get_text` (always Fresh).
+    async fn get_conditional(
         &self,
         url: &str,
         etag: Option<&str>,
-    ) -> Result<ConditionalResponse<T>, String> {
-        let _ = etag; // default ignores etag
-        let data = self.get_json(url).await?;
-        Ok(ConditionalResponse::Fresh { data, etag: None })
+    ) -> Result<ConditionalResponse, String> {
+        let _ = etag;
+        let body = self.get_text(url).await?;
+        Ok(ConditionalResponse::Fresh { body, etag: None })
     }
 }
 
@@ -99,11 +99,11 @@ impl HttpClient for ReqwestClient {
             .map_err(|e| format!("Failed to parse JSON: {}", e))
     }
 
-    async fn get_json_conditional<T: serde::de::DeserializeOwned>(
+    async fn get_conditional(
         &self,
         url: &str,
         etag: Option<&str>,
-    ) -> Result<ConditionalResponse<T>, String> {
+    ) -> Result<ConditionalResponse, String> {
         let mut request = self.client.get(url);
         if let Some(etag_value) = etag {
             request = request.header(reqwest::header::IF_NONE_MATCH, etag_value);
@@ -130,13 +130,13 @@ impl HttpClient for ReqwestClient {
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
-        let data = response
-            .json::<T>()
+        let body = response
+            .text()
             .await
-            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+            .map_err(|e| format!("Failed to read response: {}", e))?;
 
         Ok(ConditionalResponse::Fresh {
-            data,
+            body,
             etag: response_etag,
         })
     }

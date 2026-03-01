@@ -1,75 +1,137 @@
 use async_trait::async_trait;
+use chrono::Utc;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use crate::model::{is_newer_version, AppInfo, DiscoveredApp, ScanError, ScanResult, Source};
 use crate::scanner::{ConditionalResponse, HttpClient, Scanner};
+use crate::settings::Settings;
 
 const CASK_API_URL: &str = "https://formulae.brew.sh/api/cask.json";
-const CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
+const CACHE_TTL: Duration = Duration::from_secs(120); // 2 minutes
 
 struct CachedCatalog {
     entries: Vec<CaskEntry>,
-    etag: Option<String>,
     fetched_at: Instant,
 }
 
 pub struct CatalogCache {
     inner: Mutex<Option<CachedCatalog>>,
+    cache_file: PathBuf,
+    settings_file: PathBuf,
 }
 
 impl CatalogCache {
-    pub fn new() -> Self {
+    pub fn new(cache_file: PathBuf, settings_file: PathBuf) -> Self {
         Self {
             inner: Mutex::new(None),
+            cache_file,
+            settings_file,
         }
+    }
+
+    /// Parse raw JSON text into cask entries.
+    fn parse_casks(body: &str) -> Result<Vec<CaskEntry>, String> {
+        serde_json::from_str(body).map_err(|e| format!("Failed to parse cask catalog: {}", e))
+    }
+
+    /// Write raw response body to the cache file, creating directories as needed.
+    fn write_cache(&self, body: &str) {
+        if let Some(parent) = self.cache_file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&self.cache_file, body);
+    }
+
+    /// Read raw JSON from the cache file.
+    fn read_cache(&self) -> Option<String> {
+        std::fs::read_to_string(&self.cache_file).ok()
+    }
+
+    /// Update settings with new brew cache metadata and save to disk.
+    fn save_settings(&self, etag: Option<String>) {
+        let mut settings = Settings::load(&self.settings_file);
+        settings.brew_etag = etag;
+        settings.brew_fetched_at = Some(Utc::now());
+        let _ = settings.save(&self.settings_file);
+    }
+
+    /// Check if the brew cache is fresh based on the settings timestamp.
+    fn is_disk_cache_fresh(&self) -> (bool, Option<String>) {
+        let settings = Settings::load(&self.settings_file);
+        let fresh = settings
+            .brew_fetched_at
+            .map(|t| {
+                let age = Utc::now().signed_duration_since(t);
+                age < chrono::Duration::seconds(CACHE_TTL.as_secs() as i64)
+            })
+            .unwrap_or(false);
+        (fresh, settings.brew_etag)
+    }
+
+    /// Populate memory cache from parsed entries.
+    fn populate_memory(
+        guard: &mut Option<CachedCatalog>,
+        entries: Vec<CaskEntry>,
+    ) -> Vec<CaskEntry> {
+        let cloned = entries.clone();
+        *guard = Some(CachedCatalog {
+            entries,
+            fetched_at: Instant::now(),
+        });
+        cloned
     }
 
     async fn get_or_fetch(&self, http: &impl HttpClient) -> Result<Vec<CaskEntry>, String> {
         let mut guard = self.inner.lock().await;
 
+        // Tier 1: Memory cache
         if let Some(cached) = guard.as_ref() {
             if cached.fetched_at.elapsed() < CACHE_TTL {
                 return Ok(cached.entries.clone());
             }
+        }
 
-            // Cache expired — try conditional request
-            let etag = cached.etag.as_deref();
-            match http.get_json_conditional(CASK_API_URL, etag).await? {
-                ConditionalResponse::NotModified => {
-                    // Data unchanged — refresh timestamp
-                    guard.as_mut().unwrap().fetched_at = Instant::now();
-                    return Ok(guard.as_ref().unwrap().entries.clone());
-                }
-                ConditionalResponse::Fresh { data, etag } => {
-                    *guard = Some(CachedCatalog {
-                        entries: data,
-                        etag,
-                        fetched_at: Instant::now(),
-                    });
-                    return Ok(guard.as_ref().unwrap().entries.clone());
-                }
+        // Tier 2: Disk cache
+        let (disk_fresh, etag) = self.is_disk_cache_fresh();
+        if disk_fresh {
+            if let Some(body) = self.read_cache() {
+                let entries = Self::parse_casks(&body)?;
+                return Ok(Self::populate_memory(&mut guard, entries));
             }
         }
 
-        // No cache — fresh fetch
-        let response: ConditionalResponse<Vec<CaskEntry>> =
-            http.get_json_conditional(CASK_API_URL, None).await?;
-        match response {
-            ConditionalResponse::Fresh { data, etag } => {
-                *guard = Some(CachedCatalog {
-                    entries: data,
-                    etag,
-                    fetched_at: Instant::now(),
-                });
-                Ok(guard.as_ref().unwrap().entries.clone())
-            }
+        // Tier 3: Network (conditional if we have an ETag)
+        match http.get_conditional(CASK_API_URL, etag.as_deref()).await? {
             ConditionalResponse::NotModified => {
-                // Shouldn't happen without an etag, but handle gracefully
-                Err("Unexpected 304 without prior cache".to_string())
+                self.save_settings(etag);
+                if let Some(body) = self.read_cache() {
+                    let entries = Self::parse_casks(&body)?;
+                    return Ok(Self::populate_memory(&mut guard, entries));
+                }
+                // 304 but no cache file — shouldn't happen, fall through to fresh fetch
+                let response = http.get_conditional(CASK_API_URL, None).await?;
+                match response {
+                    ConditionalResponse::Fresh { body, etag } => {
+                        self.write_cache(&body);
+                        self.save_settings(etag);
+                        let entries = Self::parse_casks(&body)?;
+                        Ok(Self::populate_memory(&mut guard, entries))
+                    }
+                    ConditionalResponse::NotModified => {
+                        Err("Unexpected 304 without prior cache".to_string())
+                    }
+                }
+            }
+            ConditionalResponse::Fresh { body, etag } => {
+                self.write_cache(&body);
+                self.save_settings(etag);
+                let entries = Self::parse_casks(&body)?;
+                Ok(Self::populate_memory(&mut guard, entries))
             }
         }
     }
@@ -214,6 +276,16 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    fn test_cache() -> (TempDir, CatalogCache) {
+        let dir = TempDir::new().unwrap();
+        let cache = CatalogCache::new(
+            dir.path().join("brew.cache"),
+            dir.path().join("settings.json"),
+        );
+        (dir, cache)
+    }
 
     struct MockHttpClient {
         responses: Mutex<Vec<Result<String, String>>>,
@@ -279,7 +351,7 @@ mod tests {
     async fn test_scan_finds_update() {
         let json = cask_json("firefox", "Mozilla Firefox", "125.0.1", "Firefox.app");
         let http = MockHttpClient::with_json(&json);
-        let cache = CatalogCache::new();
+        let (_dir, cache) = test_cache();
         let scanner = HomebrewScanner::new(&http, &cache);
         let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
 
@@ -298,7 +370,7 @@ mod tests {
     async fn test_scan_no_update() {
         let json = cask_json("firefox", "Mozilla Firefox", "124.0", "Firefox.app");
         let http = MockHttpClient::with_json(&json);
-        let cache = CatalogCache::new();
+        let (_dir, cache) = test_cache();
         let scanner = HomebrewScanner::new(&http, &cache);
         let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
 
@@ -312,7 +384,7 @@ mod tests {
     async fn test_unmatched_app_skipped() {
         let json = cask_json("firefox", "Mozilla Firefox", "125.0", "Firefox.app");
         let http = MockHttpClient::with_json(&json);
-        let cache = CatalogCache::new();
+        let (_dir, cache) = test_cache();
         let scanner = HomebrewScanner::new(&http, &cache);
         // App filename doesn't match any cask
         let apps = vec![make_app("MyCustomApp", "com.custom.app", "1.0.0")];
@@ -326,7 +398,7 @@ mod tests {
     #[tokio::test]
     async fn test_api_failure() {
         let http = MockHttpClient::with_error("Network error");
-        let cache = CatalogCache::new();
+        let (_dir, cache) = test_cache();
         let scanner = HomebrewScanner::new(&http, &cache);
         let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
 
@@ -346,7 +418,7 @@ mod tests {
             "Visual Studio Code.app",
         );
         let http = MockHttpClient::with_json(&json);
-        let cache = CatalogCache::new();
+        let (_dir, cache) = test_cache();
         let scanner = HomebrewScanner::new(&http, &cache);
         let apps = vec![make_app(
             "Visual Studio Code",
@@ -364,7 +436,7 @@ mod tests {
     async fn test_uses_real_bundle_id() {
         let json = cask_json("firefox", "Mozilla Firefox", "125.0", "Firefox.app");
         let http = MockHttpClient::with_json(&json);
-        let cache = CatalogCache::new();
+        let (_dir, cache) = test_cache();
         let scanner = HomebrewScanner::new(&http, &cache);
         let apps = vec![make_app("Firefox", "org.mozilla.firefox", "124.0")];
 
