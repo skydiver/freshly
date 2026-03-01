@@ -179,11 +179,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 KeyCode::Esc => {
                                     if overlay.is_done() {
                                         // Dismiss overlay
-                                        let _was_success = overlay.status == updater::BrewStatus::Succeeded;
+                                        let was_success = overlay.status == updater::BrewStatus::Succeeded;
                                         app.brew_overlay = None;
                                         brew_rx = None;
                                         brew_child = None;
-                                        // TODO Task 7: single-app re-scan if _was_success
+                                        // The overlay captures all input, so selected_app()
+                                        // is guaranteed to still be the app that triggered
+                                        // the brew upgrade — navigation cannot occur while
+                                        // the overlay is displayed.
+                                        if was_success {
+                                            if let Some(selected) = app.selected_app() {
+                                                let app_path = selected.app_path.clone();
+                                                let bundle_id = selected.bundle_id.clone();
+                                                let app_name = selected.name.clone();
+                                                if let Some(discovered) = discovery::discover_single_app(&app_path) {
+                                                    app.rescan_app_version(&bundle_id, &discovered.version);
+                                                } else {
+                                                    app.status_message = Some(format!(
+                                                        "Updated {} — couldn't re-read version from disk",
+                                                        app_name
+                                                    ));
+                                                }
+                                            }
+                                        }
                                     } else {
                                         overlay.request_cancel();
                                     }

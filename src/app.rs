@@ -375,6 +375,21 @@ impl App {
         self.apply_filter_and_sort();
     }
 
+    /// Update an app's installed version after a successful brew upgrade.
+    /// Re-checks has_update against latest_version, then re-applies filter/sort.
+    /// An app that is now up to date will be removed from the Outdated filter view.
+    pub fn rescan_app_version(&mut self, bundle_id: &str, new_version: &str) {
+        if let Some(app) = self.apps.iter_mut().find(|a| a.bundle_id == bundle_id) {
+            app.installed_version = new_version.to_string();
+            app.has_update = app
+                .latest_version
+                .as_ref()
+                .map(|v| crate::model::is_newer_version(new_version, v))
+                .unwrap_or(false);
+        }
+        self.apply_filter_and_sort();
+    }
+
     pub fn apply_filter_and_sort(&mut self) {
         self.filtered_indices = self
             .apps
@@ -882,6 +897,26 @@ mod tests {
             cask_token: "firefox".to_string(),
             app_name: "Firefox".to_string(),
         });
+    }
+
+    #[test]
+    fn test_rescan_app_updates_version() {
+        let mut app = test_app();
+        let mut brew_app = make_app("Firefox", true, Source::Homebrew);
+        brew_app.cask_token = Some("firefox".to_string());
+        brew_app.installed_version = "1.0.0".to_string();
+        brew_app.latest_version = Some("2.0.0".to_string());
+        app.set_results(ScanResult {
+            apps: vec![brew_app],
+            errors: vec![],
+        });
+
+        app.rescan_app_version("com.test.firefox", "2.0.0");
+        let updated = &app.apps[0];
+        assert_eq!(updated.installed_version, "2.0.0");
+        assert!(!updated.has_update);
+        // App is no longer outdated, so it should be filtered out in Outdated mode
+        assert!(app.filtered_indices.is_empty());
     }
 
     #[test]

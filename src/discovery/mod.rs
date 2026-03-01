@@ -90,6 +90,23 @@ pub fn discover_apps(applications_dir: &Path) -> Vec<DiscoveredApp> {
     apps
 }
 
+/// Discover a single app by its .app bundle path.
+/// Returns None if the plist can't be read.
+pub fn discover_single_app(app_path: &Path) -> Option<DiscoveredApp> {
+    let plist_path = app_path.join("Contents").join("Info.plist");
+    let info = parse_info_plist(&plist_path).ok()?;
+    let has_mas_receipt = app_path.join("Contents").join("_MASReceipt").is_dir();
+
+    Some(DiscoveredApp {
+        name: info.name,
+        bundle_id: info.bundle_id,
+        version: info.version,
+        path: app_path.to_path_buf(),
+        has_mas_receipt,
+        sparkle_feed_url: info.sparkle_feed_url,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +188,25 @@ mod tests {
     fn test_discover_apps_nonexistent_dir() {
         let apps = discover_apps(Path::new("/nonexistent/path"));
         assert!(apps.is_empty());
+    }
+
+    #[test]
+    fn test_discover_single_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let app_dir = dir.path().join("FakeApp.app").join("Contents");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::copy(fixture_path("TestApp.plist"), app_dir.join("Info.plist")).unwrap();
+
+        let result = discover_single_app(&dir.path().join("FakeApp.app"));
+        assert!(result.is_some());
+        let app = result.unwrap();
+        assert_eq!(app.name, "TestApp");
+        assert_eq!(app.bundle_id, "com.example.TestApp");
+    }
+
+    #[test]
+    fn test_discover_single_app_nonexistent() {
+        let result = discover_single_app(Path::new("/nonexistent/Foo.app"));
+        assert!(result.is_none());
     }
 }
