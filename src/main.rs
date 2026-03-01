@@ -277,6 +277,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         for _ in 0..page { app.scroll_detail_up(); }
                                     }
                                 }
+                                KeyCode::Esc if app.active_pane == app::Pane::Detail => {
+                                    app.active_pane = app::Pane::List;
+                                }
                                 KeyCode::Tab => app.toggle_pane(),
                                 KeyCode::Char('f') => app.cycle_filter(),
                                 KeyCode::Char('s') => app.cycle_sort(),
@@ -289,8 +292,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     spawn_scan(tx.clone(), Arc::clone(&brew_cache));
                                 }
                                 KeyCode::Enter => {
-                                    if app.active_pane == app::Pane::Detail
-                                        && app.detail_focus == app::DetailFocus::Actions
+                                    if app.active_pane == app::Pane::List {
+                                        app.active_pane = app::Pane::Detail;
+                                    } else if app.active_pane == app::Pane::Detail
                                     {
                                         match app.selected_action_enum() {
                                             Some(app::Action::OpenApp) => app.open_selected_app(),

@@ -1,4 +1,4 @@
-use crate::app::{App, DetailFocus, Pane};
+use crate::app::{App, Pane};
 use crate::model::is_major_update;
 use ratatui::{
     layout::Rect,
@@ -90,16 +90,13 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             crate::app::Action::HideApp => ("Hide App", "Permanently hides from list".to_string()),
         };
         let label = format!(" [ {:<8} ] ", label_text);
-        let button_style = if is_focused {
-            match app.detail_focus {
-                DetailFocus::Actions if app.selected_action == i => {
-                    Style::default()
-                        .fg(Color::White)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
-                }
-                _ => Style::default().fg(Color::White),
-            }
+        let button_style = if is_focused && app.selected_action == i {
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else if is_focused {
+            Style::default().fg(Color::White)
         } else {
             Style::default().fg(Color::DarkGray)
         };
