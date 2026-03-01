@@ -154,6 +154,12 @@ impl<H: HttpClient> Scanner for SparkleScanner<'_, H> {
         let sparkle_apps: Vec<&DiscoveredApp> =
             apps.iter().filter(|a| a.sparkle_feed_url.is_some()).collect();
 
+        crate::trace::log(&format!(
+            "[sparkle:scan] {} Sparkle candidates out of {} apps",
+            sparkle_apps.len(),
+            apps.len()
+        ));
+
         let mut result = ScanResult {
             apps: Vec::new(),
             errors: Vec::new(),
@@ -214,6 +220,14 @@ impl<H: HttpClient> Scanner for SparkleScanner<'_, H> {
                 }
             }
         }
+
+        let outdated = result.apps.iter().filter(|a| a.has_update).count();
+        crate::trace::log(&format!(
+            "[sparkle:scan] {} matched, {} outdated, {} errors",
+            result.apps.len(),
+            outdated,
+            result.errors.len()
+        ));
 
         result
     }

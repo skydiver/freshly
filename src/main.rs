@@ -3,6 +3,7 @@ mod discovery;
 mod model;
 mod scanner;
 mod settings;
+mod trace;
 mod ui;
 
 use app::{App, Screen};
@@ -34,6 +35,10 @@ struct Cli {
     /// Show scan progress and error details
     #[arg(short, long)]
     verbose: bool,
+
+    /// Write diagnostic trace to ~/Library/Caches/freshly/freshly.log
+    #[arg(long)]
+    trace: bool,
 }
 
 fn spawn_scan(
@@ -66,6 +71,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     let home = std::env::var("HOME").expect("HOME not set");
+
+    if cli.trace {
+        let log_path = std::path::PathBuf::from(format!(
+            "{}/Library/Caches/freshly/freshly.log",
+            home
+        ));
+        trace::init(&log_path);
+        trace::log("freshly started with --trace");
+    }
+
     let brew_cache = Arc::new(scanner::homebrew::CatalogCache::new(
         std::path::PathBuf::from(format!("{}/Library/Caches/freshly/brew.cache", home)),
         std::path::PathBuf::from(format!(
@@ -125,6 +140,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tick = tokio::time::sleep(Duration::from_millis(100));
         tokio::select! {
             Some(mut result) = rx.recv() => {
+                trace::log(&format!(
+                    "[app] received {} apps, {} errors",
+                    result.apps.len(),
+                    result.errors.len()
+                ));
                 result.apps = filter_by_source(result.apps, &cli.source);
                 app.set_results(result);
             }

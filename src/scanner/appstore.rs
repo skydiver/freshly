@@ -50,6 +50,12 @@ impl<H: HttpClient> Scanner for AppStoreScanner<'_, H> {
             errors: Vec::new(),
         };
 
+        crate::trace::log(&format!(
+            "[appstore:scan] {} MAS candidates out of {} apps",
+            mas_apps.len(),
+            apps.len()
+        ));
+
         if mas_apps.is_empty() {
             return result;
         }
@@ -71,6 +77,11 @@ impl<H: HttpClient> Scanner for AppStoreScanner<'_, H> {
 
             match self.http.get_json::<ItunesResponse>(&url).await {
                 Ok(response) => {
+                    crate::trace::log(&format!(
+                        "[appstore:scan] batch {} ids → {} iTunes results",
+                        bundle_ids.len(),
+                        response.results.len()
+                    ));
                     for app in chunk {
                         if let Some(itunes_app) =
                             response.results.iter().find(|r| r.bundle_id == app.bundle_id)
@@ -102,6 +113,10 @@ impl<H: HttpClient> Scanner for AppStoreScanner<'_, H> {
                     }
                 }
                 Err(e) => {
+                    crate::trace::log(&format!(
+                        "[appstore:scan] batch error: {}",
+                        e
+                    ));
                     for app in chunk {
                         result.errors.push(ScanError {
                             scanner: self.name().to_string(),
@@ -112,6 +127,14 @@ impl<H: HttpClient> Scanner for AppStoreScanner<'_, H> {
                 }
             }
         }
+
+        let outdated = result.apps.iter().filter(|a| a.has_update).count();
+        crate::trace::log(&format!(
+            "[appstore:scan] {} matched, {} outdated, {} errors",
+            result.apps.len(),
+            outdated,
+            result.errors.len()
+        ));
 
         result
     }

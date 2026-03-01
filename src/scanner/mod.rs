@@ -158,6 +158,10 @@ pub async fn run_scanners(
         homebrew.scan(apps),
     );
 
+    let r1_count = r1.apps.len();
+    let r2_count = r2.apps.len();
+    let r3_count = r3.apps.len();
+
     let mut merged = ScanResult {
         apps: Vec::new(),
         errors: Vec::new(),
@@ -183,6 +187,11 @@ pub async fn run_scanners(
         }
     }
     merged.apps = deduped;
+
+    crate::trace::log(&format!(
+        "[scanners] appstore:{} sparkle:{} homebrew:{} → deduped:{}",
+        r1_count, r2_count, r3_count, merged.apps.len()
+    ));
 
     merged
         .apps

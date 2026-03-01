@@ -92,6 +92,8 @@ impl CatalogCache {
         // Tier 1: Memory cache
         if let Some(cached) = guard.as_ref() {
             if cached.fetched_at.elapsed() < CACHE_TTL {
+                let age = cached.fetched_at.elapsed().as_secs();
+                crate::trace::log(&format!("[brew:cache] memory hit (age: {}s)", age));
                 return Ok(cached.entries.clone());
             }
         }
@@ -101,16 +103,27 @@ impl CatalogCache {
         if disk_fresh {
             if let Some(body) = self.read_cache() {
                 let entries = Self::parse_casks(&body)?;
+                crate::trace::log(&format!(
+                    "[brew:cache] disk hit, loaded {} casks",
+                    entries.len()
+                ));
                 return Ok(Self::populate_memory(&mut guard, entries));
             }
         }
 
         // Tier 3: Network (conditional if we have an ETag)
-        match http.get_conditional(CASK_API_URL, etag.as_deref()).await? {
-            ConditionalResponse::NotModified => {
+        let result = http.get_conditional(CASK_API_URL, etag.as_deref()).await;
+        match result {
+            Err(e) => {
+                crate::trace::log(&format!("[brew:cache] error: {}", e));
+                Err(e)
+            }
+            Ok(ConditionalResponse::NotModified) => {
+                crate::trace::log("[brew:cache] network 304 (etag revalidated)");
                 self.save_settings(etag);
                 if let Some(body) = self.read_cache() {
                     let entries = Self::parse_casks(&body)?;
+                    crate::trace::log(&format!("[brew:cache] loaded {} casks", entries.len()));
                     return Ok(Self::populate_memory(&mut guard, entries));
                 }
                 // 304 but no cache file — shouldn't happen, fall through to fresh fetch
@@ -120,6 +133,7 @@ impl CatalogCache {
                         self.write_cache(&body);
                         self.save_settings(etag);
                         let entries = Self::parse_casks(&body)?;
+                        crate::trace::log(&format!("[brew:cache] loaded {} casks", entries.len()));
                         Ok(Self::populate_memory(&mut guard, entries))
                     }
                     ConditionalResponse::NotModified => {
@@ -127,10 +141,12 @@ impl CatalogCache {
                     }
                 }
             }
-            ConditionalResponse::Fresh { body, etag } => {
+            Ok(ConditionalResponse::Fresh { body, etag }) => {
+                crate::trace::log("[brew:cache] network 200 (fresh download)");
                 self.write_cache(&body);
                 self.save_settings(etag);
                 let entries = Self::parse_casks(&body)?;
+                crate::trace::log(&format!("[brew:cache] loaded {} casks", entries.len()));
                 Ok(Self::populate_memory(&mut guard, entries))
             }
         }
@@ -266,6 +282,14 @@ impl<H: HttpClient> Scanner for HomebrewScanner<'_, H> {
                 app_path: app.path.clone(),
             });
         }
+
+        let outdated = result.apps.iter().filter(|a| a.has_update).count();
+        crate::trace::log(&format!(
+            "[brew:scan] {} casks, {} matched, {} outdated",
+            casks.len(),
+            result.apps.len(),
+            outdated
+        ));
 
         result
     }
