@@ -75,11 +75,21 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     let actions = app.actions_for_selected();
     lines.push(Line::from(""));
     for (i, action) in actions.iter().enumerate() {
-        let label = match action {
-            crate::app::Action::Update => " [ Update ] ",
-            crate::app::Action::OpenApp => " [ Open App ] ",
-            crate::app::Action::HideApp => " [ Hide App ] ",
+        let (label_text, hint) = match action {
+            crate::app::Action::Update => {
+                let hint = match selected.source {
+                    crate::model::Source::Homebrew => {
+                        format!("brew upgrade --cask {}", selected.cask_token.as_deref().unwrap_or("?"))
+                    }
+                    crate::model::Source::AppStore => "Opens App Store updates".to_string(),
+                    crate::model::Source::Sparkle => "Opens app to check for updates".to_string(),
+                };
+                ("Update", hint)
+            }
+            crate::app::Action::OpenApp => ("Open App", format!("Opens {}", selected.name)),
+            crate::app::Action::HideApp => ("Hide App", "Permanently hides from list".to_string()),
         };
+        let label = format!(" [ {:<8} ] ", label_text);
         let button_style = if is_focused {
             match app.detail_focus {
                 DetailFocus::Actions if app.selected_action == i => {
@@ -96,22 +106,8 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(vec![
             Span::raw(" "),
             Span::styled(label, button_style),
+            Span::styled(format!("  {}", hint), Style::default().fg(Color::DarkGray)),
         ]));
-
-        // Hint text below Update button
-        if matches!(action, crate::app::Action::Update) {
-            let hint = match selected.source {
-                crate::model::Source::Homebrew => {
-                    format!("  brew upgrade --cask {}", selected.cask_token.as_deref().unwrap_or("?"))
-                }
-                crate::model::Source::AppStore => "  Opens App Store updates".to_string(),
-                crate::model::Source::Sparkle => "  Opens app to check for updates".to_string(),
-            };
-            lines.push(Line::from(Span::styled(
-                hint,
-                Style::default().fg(Color::DarkGray),
-            )));
-        }
     }
     lines.push(Line::from(""));
 
