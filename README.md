@@ -6,8 +6,8 @@ freshly scans your `/Applications` folder and checks for available updates acros
 
 <table>
 <tr>
-<td><a href="assets/screenshot-outdated.png"><img src="assets/screenshot-outdated.png" alt="freshly — outdated apps view" width="400"></a></td>
-<td><a href="assets/screenshot-all.png"><img src="assets/screenshot-all.png" alt="freshly — all apps view" width="400"></a></td>
+<td><a href="assets/freshly-outdated.png"><img src="assets/freshly-outdated.png" alt="freshly — outdated apps view" width="400"></a></td>
+<td><a href="assets/freshly-all.png"><img src="assets/freshly-all.png" alt="freshly — all apps view" width="400"></a></td>
 </tr>
 <tr>
 <td align="center"><em>Outdated apps</em></td>
