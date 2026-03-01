@@ -55,21 +55,21 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(available_color),
         ),
         detail_line("Source", &source_label, Style::default().fg(Color::Gray)),
+        if selected.has_update {
+            detail_line(
+                "Status",
+                "Update available",
+                Style::default().fg(available_color).add_modifier(Modifier::BOLD),
+            )
+        } else {
+            detail_line(
+                "Status",
+                "Up to date",
+                Style::default().fg(Color::Green),
+            )
+        },
         Line::from(""),
     ];
-
-    if selected.has_update {
-        lines.push(Line::from(vec![
-            Span::raw(" "),
-            Span::styled(
-                "⬆ Update available",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]));
-        lines.push(Line::from(""));
-    }
 
     // Action button: [ Open App ]
     lines.push(Line::from(""));
