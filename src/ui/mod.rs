@@ -3,6 +3,7 @@ pub mod app_list;
 pub mod error_overlay;
 pub mod loading;
 pub mod status_bar;
+pub mod update_overlay;
 
 use crate::app::{App, Screen};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -48,5 +49,9 @@ fn draw_main(f: &mut Frame, app: &App) {
 
     if app.show_errors {
         error_overlay::draw(f, app);
+    }
+
+    if let Some(ref overlay) = app.brew_overlay {
+        update_overlay::draw(f, overlay);
     }
 }

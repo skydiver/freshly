@@ -21,7 +21,6 @@ pub struct BrewOverlay {
     pub app_name: String,
     pub status: BrewStatus,
     pub lines: Vec<String>,
-    pub scroll: u16,
 }
 
 impl BrewOverlay {
@@ -31,7 +30,6 @@ impl BrewOverlay {
             app_name,
             status: BrewStatus::Running,
             lines: Vec::new(),
-            scroll: 0,
         }
     }
 
