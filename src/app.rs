@@ -109,6 +109,7 @@ pub struct App {
     pub status_message: Option<String>,
     pub hidden_bundle_ids: Vec<String>,
     pub settings_path: PathBuf,
+    pub brew_overlay: Option<crate::updater::BrewOverlay>,
 }
 
 impl App {
@@ -134,6 +135,7 @@ impl App {
             status_message: None,
             hidden_bundle_ids: settings.hidden_apps,
             settings_path,
+            brew_overlay: None,
         }
     }
 

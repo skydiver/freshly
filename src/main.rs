@@ -5,6 +5,7 @@ mod scanner;
 mod settings;
 mod trace;
 mod ui;
+mod updater;
 
 use app::{App, Screen};
 use clap::Parser;
