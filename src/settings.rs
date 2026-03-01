@@ -8,6 +8,8 @@ pub struct Settings {
     pub brew_etag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub brew_fetched_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_apps: Vec<String>,
 }
 
 impl Settings {

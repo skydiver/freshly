@@ -71,30 +71,28 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         Line::from(""),
     ];
 
-    // Action button: [ Open App ]
+    // Action buttons
+    let action_labels = [" [ Open App ] ", " [ Hide App ] "];
     lines.push(Line::from(""));
-    let button_style = if is_focused {
-        match app.detail_focus {
-            DetailFocus::Actions => {
-                // Selected: cyan background, bold white text
-                Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+    for (i, label) in action_labels.iter().enumerate() {
+        let button_style = if is_focused {
+            match app.detail_focus {
+                DetailFocus::Actions if app.selected_action == i => {
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                }
+                _ => Style::default().fg(Color::White),
             }
-            DetailFocus::Scroll => {
-                // Focused but scrolling: white text
-                Style::default().fg(Color::White)
-            }
-        }
-    } else {
-        // Unfocused: dim gray
-        Style::default().fg(Color::DarkGray)
-    };
-    lines.push(Line::from(vec![
-        Span::raw(" "),
-        Span::styled(" [ Open App ] ", button_style),
-    ]));
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(*label, button_style),
+        ]));
+    }
     lines.push(Line::from(""));
 
     if let Some(ref changelog) = selected.changelog {

@@ -1,4 +1,6 @@
 use crate::model::{AppInfo, ScanError, ScanResult};
+use crate::settings::Settings;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
@@ -86,10 +88,13 @@ pub struct App {
     pub show_errors: bool,
     pub should_quit: bool,
     pub status_message: Option<String>,
+    pub hidden_bundle_ids: Vec<String>,
+    pub settings_path: PathBuf,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(settings_path: PathBuf) -> Self {
+        let settings = Settings::load(&settings_path);
         Self {
             screen: Screen::Loading,
             active_pane: Pane::List,
@@ -108,6 +113,8 @@ impl App {
             show_errors: false,
             should_quit: false,
             status_message: None,
+            hidden_bundle_ids: settings.hidden_apps,
+            settings_path,
         }
     }
 
@@ -147,6 +154,22 @@ impl App {
                 self.status_message = Some(format!("Failed to open: {}", e));
             }
         }
+    }
+
+    pub fn hide_selected_app(&mut self) {
+        let Some(selected) = self.selected_app() else {
+            return;
+        };
+        let bundle_id = selected.bundle_id.clone();
+        self.hidden_bundle_ids.push(bundle_id);
+
+        let mut settings = Settings::load(&self.settings_path);
+        settings.hidden_apps = self.hidden_bundle_ids.clone();
+        if let Err(e) = settings.save(&self.settings_path) {
+            self.status_message = Some(format!("Failed to save settings: {}", e));
+        }
+
+        self.apply_filter_and_sort();
     }
 
     pub fn outdated_count(&self) -> usize {
@@ -217,7 +240,7 @@ impl App {
     }
 
     /// Number of action items in the detail pane.
-    const DETAIL_ACTION_COUNT: usize = 1; // "Open App"
+    const DETAIL_ACTION_COUNT: usize = 2; // "Open App", "Hide App"
 
     pub fn navigate_detail_down(&mut self) {
         self.status_message = None;
@@ -287,6 +310,9 @@ impl App {
             .iter()
             .enumerate()
             .filter(|(_, app)| {
+                if self.hidden_bundle_ids.contains(&app.bundle_id) {
+                    return false;
+                }
                 let filter_match = match self.filter {
                     FilterMode::All => true,
                     FilterMode::Outdated => app.has_update,
@@ -350,6 +376,10 @@ mod tests {
         }
     }
 
+    fn test_app() -> App {
+        App::new(PathBuf::from("/tmp/freshly-test-settings.json"))
+    }
+
     fn sample_result() -> ScanResult {
         ScanResult {
             apps: vec![
@@ -364,7 +394,7 @@ mod tests {
 
     #[test]
     fn test_initial_state() {
-        let app = App::new();
+        let app = test_app();
         assert_eq!(app.screen, Screen::Loading);
         assert_eq!(app.active_pane, Pane::List);
         assert!(!app.should_quit);
@@ -372,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_set_results() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         assert_eq!(app.screen, Screen::Main);
         assert_eq!(app.apps.len(), 4);
@@ -382,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_filter_all() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.cycle_filter(); // Outdated -> UpToDate
         app.cycle_filter(); // UpToDate -> All
@@ -392,7 +422,7 @@ mod tests {
 
     #[test]
     fn test_navigation() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         assert_eq!(app.selected_index, 0);
         app.select_next();
@@ -405,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_search_filter() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         // Default is Outdated (Firefox, Slack). Search for "fi" → Firefox only
         app.is_searching = true;
@@ -416,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_sort_by_status() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.filter = FilterMode::All;
         app.sort = SortMode::Status;
@@ -427,7 +457,7 @@ mod tests {
 
     #[test]
     fn test_cycle_sort_skips_status_when_filtered() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         // Default filter is Outdated
         assert_eq!(app.filter, FilterMode::Outdated);
@@ -438,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_cycle_filter_resets_status_sort() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.filter = FilterMode::All;
         app.sort = SortMode::Status;
@@ -450,7 +480,7 @@ mod tests {
 
     #[test]
     fn test_cycle_filter_keeps_name_sort() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.filter = FilterMode::All;
         app.sort = SortMode::Name;
@@ -461,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_cycle_sort_allows_status_when_all() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.filter = FilterMode::All;
         app.sort = SortMode::Source;
@@ -471,21 +501,21 @@ mod tests {
 
     #[test]
     fn test_outdated_count() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         assert_eq!(app.outdated_count(), 2);
     }
 
     #[test]
     fn test_initial_detail_focus() {
-        let app = App::new();
+        let app = test_app();
         assert_eq!(app.detail_focus, DetailFocus::Actions);
         assert_eq!(app.selected_action, 0);
     }
 
     #[test]
     fn test_detail_focus_resets_on_select_next() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.detail_focus = DetailFocus::Scroll;
         app.select_next();
@@ -496,7 +526,7 @@ mod tests {
 
     #[test]
     fn test_detail_focus_resets_on_select_previous() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.select_next(); // move to index 1
         app.detail_focus = DetailFocus::Scroll;
@@ -506,7 +536,7 @@ mod tests {
 
     #[test]
     fn test_navigate_detail_down_from_scroll_to_actions() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.active_pane = Pane::Detail;
         app.detail_focus = DetailFocus::Scroll;
@@ -517,7 +547,7 @@ mod tests {
 
     #[test]
     fn test_navigate_detail_up_from_actions_to_scroll() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.active_pane = Pane::Detail;
         app.detail_focus = DetailFocus::Actions;
@@ -528,20 +558,23 @@ mod tests {
 
     #[test]
     fn test_navigate_detail_down_in_actions_stays() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.active_pane = Pane::Detail;
         app.detail_focus = DetailFocus::Actions;
         app.selected_action = 0;
-        // Only one action exists, so down stays at 0
+        // Two actions exist, so down moves to action 1
         app.navigate_detail_down();
         assert_eq!(app.detail_focus, DetailFocus::Actions);
-        assert_eq!(app.selected_action, 0);
+        assert_eq!(app.selected_action, 1);
+        // Down again stays at 1 (last action)
+        app.navigate_detail_down();
+        assert_eq!(app.selected_action, 1);
     }
 
     #[test]
     fn test_navigate_detail_up_in_scroll_scrolls() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.active_pane = Pane::Detail;
         app.detail_focus = DetailFocus::Scroll;
@@ -553,7 +586,7 @@ mod tests {
 
     #[test]
     fn test_detail_focus_resets_on_page_down() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.detail_focus = DetailFocus::Scroll;
         app.page_down(1);
@@ -563,7 +596,7 @@ mod tests {
 
     #[test]
     fn test_detail_focus_resets_on_page_up() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.select_next(); // move off 0 so page_up has effect
         app.detail_focus = DetailFocus::Scroll;
@@ -573,7 +606,7 @@ mod tests {
 
     #[test]
     fn test_open_selected_app_clears_status_on_success() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         // Use /dev/null — `open` can handle it without launching a visible app
         app.apps[0].app_path = std::path::PathBuf::from("/dev/null");
@@ -587,7 +620,7 @@ mod tests {
 
     #[test]
     fn test_status_message_clears_on_navigation() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.set_results(sample_result());
         app.status_message = Some("error".to_string());
         app.select_next();
@@ -596,9 +629,70 @@ mod tests {
 
     #[test]
     fn test_open_selected_app_no_crash_when_no_selection() {
-        let mut app = App::new();
+        let mut app = test_app();
         // No results loaded, no selected app
         app.open_selected_app();
         // Should not panic, just no-op
+    }
+
+    #[test]
+    fn test_hidden_apps_excluded_from_filter() {
+        let mut app = test_app();
+        app.set_results(sample_result());
+        app.filter = FilterMode::All;
+        app.apply_filter_and_sort();
+        assert_eq!(app.filtered_indices.len(), 4);
+
+        // Hide Firefox
+        app.hidden_bundle_ids.push("com.test.firefox".to_string());
+        app.apply_filter_and_sort();
+        assert_eq!(app.filtered_indices.len(), 3);
+        // Verify Firefox is not in the filtered list
+        for &i in &app.filtered_indices {
+            assert_ne!(app.apps[i].bundle_id, "com.test.firefox");
+        }
+    }
+
+    #[test]
+    fn test_hidden_apps_works_with_outdated_filter() {
+        let mut app = test_app();
+        app.set_results(sample_result());
+        // Default filter is Outdated → Firefox, Slack
+        assert_eq!(app.filtered_indices.len(), 2);
+
+        app.hidden_bundle_ids.push("com.test.firefox".to_string());
+        app.apply_filter_and_sort();
+        // Only Slack remains
+        assert_eq!(app.filtered_indices.len(), 1);
+        let remaining = app.selected_app().unwrap();
+        assert_eq!(remaining.name, "Slack");
+    }
+
+    #[test]
+    fn test_hide_selected_app_no_crash_when_no_selection() {
+        let mut app = test_app();
+        app.hide_selected_app();
+        // Should not panic, just no-op
+    }
+
+    #[test]
+    fn test_navigate_detail_between_two_actions() {
+        let mut app = test_app();
+        app.set_results(sample_result());
+        app.active_pane = Pane::Detail;
+        app.detail_focus = DetailFocus::Actions;
+        app.selected_action = 0;
+
+        // Down moves to Hide App
+        app.navigate_detail_down();
+        assert_eq!(app.selected_action, 1);
+
+        // Up moves back to Open App
+        app.navigate_detail_up();
+        assert_eq!(app.selected_action, 0);
+
+        // Up again switches to Scroll
+        app.navigate_detail_up();
+        assert_eq!(app.detail_focus, DetailFocus::Scroll);
     }
 }

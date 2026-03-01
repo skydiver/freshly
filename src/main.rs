@@ -81,12 +81,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         trace::log("freshly started with --trace");
     }
 
+    let settings_path = std::path::PathBuf::from(format!(
+        "{}/Library/Application Support/freshly/settings.json",
+        home
+    ));
+
     let brew_cache = Arc::new(scanner::homebrew::CatalogCache::new(
         std::path::PathBuf::from(format!("{}/Library/Caches/freshly/brew.cache", home)),
-        std::path::PathBuf::from(format!(
-            "{}/Library/Application Support/freshly/settings.json",
-            home
-        )),
+        settings_path.clone(),
     ));
 
     if cli.json {
@@ -126,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new();
+    let mut app = App::new(settings_path);
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ScanResult>(1);
     spawn_scan(tx.clone(), Arc::clone(&brew_cache));
@@ -221,7 +223,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     if app.active_pane == app::Pane::Detail
                                         && app.detail_focus == app::DetailFocus::Actions
                                     {
-                                        app.open_selected_app();
+                                        match app.selected_action {
+                                            0 => app.open_selected_app(),
+                                            1 => app.hide_selected_app(),
+                                            _ => {}
+                                        }
                                     }
                                 }
                                 _ => {}
