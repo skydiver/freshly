@@ -77,6 +77,18 @@ pub enum Action {
     HideApp,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateResult {
+    /// No action taken (no selection, no update available).
+    None,
+    /// Open the Mac App Store updates page.
+    OpenAppStore,
+    /// Open the app to trigger its Sparkle update check.
+    OpenSparkle { app_name: String, app_path: PathBuf },
+    /// Homebrew upgrade needed — caller should spawn the brew process.
+    BrewUpgrade { cask_token: String, app_name: String },
+}
+
 pub struct App {
     pub screen: Screen,
     pub active_pane: Pane,
@@ -159,6 +171,34 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to open: {}", e));
+            }
+        }
+    }
+
+    /// Determine the update action for the selected app.
+    /// Returns an intent — the caller is responsible for executing the action.
+    pub fn update_selected_app(&self) -> UpdateResult {
+        let Some(selected) = self.selected_app() else {
+            return UpdateResult::None;
+        };
+        if !selected.has_update {
+            return UpdateResult::None;
+        }
+
+        match selected.source {
+            Source::AppStore => UpdateResult::OpenAppStore,
+            Source::Sparkle => UpdateResult::OpenSparkle {
+                app_name: selected.name.clone(),
+                app_path: selected.app_path.clone(),
+            },
+            Source::Homebrew => {
+                let Some(cask_token) = selected.cask_token.clone() else {
+                    return UpdateResult::None;
+                };
+                UpdateResult::BrewUpgrade {
+                    cask_token,
+                    app_name: selected.name.clone(),
+                }
             }
         }
     }
@@ -779,5 +819,79 @@ mod tests {
         let app = test_app();
         let actions = app.actions_for_selected();
         assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn test_update_appstore_returns_open_appstore() {
+        let mut app = test_app();
+        app.set_results(ScanResult {
+            apps: vec![make_app("Pages", true, Source::AppStore)],
+            errors: vec![],
+        });
+        let result = app.update_selected_app();
+        assert_eq!(result, UpdateResult::OpenAppStore);
+    }
+
+    #[test]
+    fn test_update_sparkle_returns_open_sparkle() {
+        let mut app = test_app();
+        app.set_results(ScanResult {
+            apps: vec![make_app("Firefox", true, Source::Sparkle)],
+            errors: vec![],
+        });
+        let result = app.update_selected_app();
+        assert_eq!(result, UpdateResult::OpenSparkle {
+            app_name: "Firefox".to_string(),
+            app_path: PathBuf::from("/Applications/Firefox.app"),
+        });
+    }
+
+    #[test]
+    fn test_update_no_op_when_no_selection() {
+        let app = test_app();
+        let result = app.update_selected_app();
+        assert_eq!(result, UpdateResult::None);
+    }
+
+    #[test]
+    fn test_update_no_op_when_up_to_date() {
+        let mut app = test_app();
+        app.set_results(ScanResult {
+            apps: vec![make_app("Firefox", false, Source::Sparkle)],
+            errors: vec![],
+        });
+        app.filter = FilterMode::All;
+        app.apply_filter_and_sort();
+        let result = app.update_selected_app();
+        assert_eq!(result, UpdateResult::None);
+    }
+
+    #[test]
+    fn test_update_homebrew_returns_brew_upgrade() {
+        let mut app = test_app();
+        let mut brew_app = make_app("Firefox", true, Source::Homebrew);
+        brew_app.cask_token = Some("firefox".to_string());
+        app.set_results(ScanResult {
+            apps: vec![brew_app],
+            errors: vec![],
+        });
+        let result = app.update_selected_app();
+        assert_eq!(result, UpdateResult::BrewUpgrade {
+            cask_token: "firefox".to_string(),
+            app_name: "Firefox".to_string(),
+        });
+    }
+
+    #[test]
+    fn test_update_homebrew_missing_token() {
+        let mut app = test_app();
+        let brew_app = make_app("Firefox", true, Source::Homebrew);
+        // cask_token is None by default from make_app
+        app.set_results(ScanResult {
+            apps: vec![brew_app],
+            errors: vec![],
+        });
+        let result = app.update_selected_app();
+        assert_eq!(result, UpdateResult::None);
     }
 }

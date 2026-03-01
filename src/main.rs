@@ -227,8 +227,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             Some(app::Action::OpenApp) => app.open_selected_app(),
                                             Some(app::Action::HideApp) => app.hide_selected_app(),
                                             Some(app::Action::Update) => {
-                                                // TODO: Task 3 will implement this
-                                                app.open_selected_app();
+                                                match app.update_selected_app() {
+                                                    app::UpdateResult::OpenAppStore => {
+                                                        match std::process::Command::new("open")
+                                                            .arg("macappstore://showUpdatesPage")
+                                                            .spawn()
+                                                        {
+                                                            Ok(_) => {
+                                                                app.status_message = Some("Opened App Store updates".to_string());
+                                                            }
+                                                            Err(e) => {
+                                                                app.status_message = Some(format!("Failed to open App Store: {}", e));
+                                                            }
+                                                        }
+                                                    }
+                                                    app::UpdateResult::OpenSparkle { app_name, app_path } => {
+                                                        match std::process::Command::new("open")
+                                                            .arg(&app_path)
+                                                            .spawn()
+                                                        {
+                                                            Ok(_) => {
+                                                                app.status_message = Some(format!("Opened {} — check for updates in-app", app_name));
+                                                            }
+                                                            Err(e) => {
+                                                                app.status_message = Some(format!("Failed to open: {}", e));
+                                                            }
+                                                        }
+                                                    }
+                                                    app::UpdateResult::BrewUpgrade { .. } => {
+                                                        // TODO: Task 6 — spawn brew overlay
+                                                    }
+                                                    app::UpdateResult::None => {}
+                                                }
                                             }
                                             None => {}
                                         }
