@@ -157,19 +157,22 @@ impl App {
             .and_then(|&i| self.apps.get(i))
     }
 
+    /// Run `open <target>` and set a status message on success or error.
+    /// Pass `None` for `success_msg` to clear the status on success.
+    pub fn open_with_status(&mut self, target: impl AsRef<std::ffi::OsStr>, label: &str, success_msg: Option<String>) {
+        match std::process::Command::new("open").arg(target).spawn() {
+            Ok(_) => self.status_message = success_msg,
+            Err(e) => self.status_message = Some(format!("Failed to open {}: {}", label, e)),
+        }
+    }
+
     pub fn open_selected_app(&mut self) {
         let Some(selected) = self.selected_app() else {
             return;
         };
         let path = selected.app_path.clone();
-        match std::process::Command::new("open").arg(&path).spawn() {
-            Ok(_) => {
-                self.status_message = None;
-            }
-            Err(e) => {
-                self.status_message = Some(format!("Failed to open: {}", e));
-            }
-        }
+        let name = selected.name.clone();
+        self.open_with_status(&path, &name, None);
     }
 
     /// Determine the update action for the selected app.

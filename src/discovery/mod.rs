@@ -67,23 +67,9 @@ pub fn discover_apps(applications_dir: &Path) -> Vec<DiscoveredApp> {
         if path.extension().is_none_or(|ext| ext != "app") {
             continue;
         }
-
-        let plist_path = path.join("Contents").join("Info.plist");
-        let info = match parse_info_plist(&plist_path) {
-            Ok(info) => info,
-            Err(_) => continue,
-        };
-
-        let has_mas_receipt = path.join("Contents").join("_MASReceipt").is_dir();
-
-        apps.push(DiscoveredApp {
-            name: info.name,
-            bundle_id: info.bundle_id,
-            version: info.version,
-            path,
-            has_mas_receipt,
-            sparkle_feed_url: info.sparkle_feed_url,
-        });
+        if let Some(app) = discover_single_app(&path) {
+            apps.push(app);
+        }
     }
 
     apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));

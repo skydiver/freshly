@@ -1,27 +1,60 @@
-/// Check if the `brew` binary is available on PATH.
-pub fn brew_exists() -> bool {
-    std::process::Command::new("brew")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+/// A running `brew upgrade` process: groups the output channel and child handle
+/// so they are always created and dropped together.
+pub struct BrewProcess {
+    rx: Option<tokio::sync::mpsc::Receiver<String>>,
+    child: std::process::Child,
 }
 
-/// Spawn `brew upgrade --cask <token>` and return a receiver for output messages
-/// and the child process handle (for cancellation via kill).
-pub fn spawn_brew_upgrade(
-    cask_token: &str,
-) -> Result<(tokio::sync::mpsc::Receiver<BrewOutputMsg>, std::process::Child), String> {
+impl BrewProcess {
+    /// Receive the next output line, or pend forever once the channel closes.
+    pub async fn recv(&mut self) -> String {
+        match &mut self.rx {
+            Some(rx) => match rx.recv().await {
+                Some(line) => line,
+                None => {
+                    // Reader threads finished — stop polling.
+                    self.rx = None;
+                    std::future::pending().await
+                }
+            },
+            None => std::future::pending().await,
+        }
+    }
+
+    /// Try to reap the child without blocking. Returns `Some(success)` when done.
+    pub fn try_wait(&mut self) -> Option<bool> {
+        match self.child.try_wait() {
+            Ok(Some(status)) => Some(status.success()),
+            _ => None,
+        }
+    }
+
+    /// Kill the child process and wait for it to exit.
+    pub fn kill(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Spawn `brew upgrade --cask <token>` and return a [`BrewProcess`] handle.
+///
+/// Returns a specific message when `brew` is not found on PATH so the caller
+/// can show a user-friendly hint.
+pub fn spawn_brew_upgrade(cask_token: &str) -> Result<BrewProcess, String> {
     let mut child = std::process::Command::new("brew")
         .args(["upgrade", "--cask", cask_token])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to start brew: {}", e))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "Homebrew not found — install from brew.sh".to_string()
+            } else {
+                format!("Failed to start brew: {}", e)
+            }
+        })?;
 
-    let (tx, rx) = tokio::sync::mpsc::channel::<BrewOutputMsg>(100);
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(100);
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -32,7 +65,7 @@ pub fn spawn_brew_upgrade(
             use std::io::BufRead;
             let reader = std::io::BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
-                if tx_out.blocking_send(BrewOutputMsg::Line(line)).is_err() {
+                if tx_out.blocking_send(line).is_err() {
                     break;
                 }
             }
@@ -44,20 +77,14 @@ pub fn spawn_brew_upgrade(
             use std::io::BufRead;
             let reader = std::io::BufReader::new(stderr);
             for line in reader.lines().map_while(Result::ok) {
-                if tx.blocking_send(BrewOutputMsg::Line(line)).is_err() {
+                if tx.blocking_send(line).is_err() {
                     break;
                 }
             }
         });
     }
 
-    Ok((rx, child))
-}
-
-/// Messages sent from the brew process reader task to the main loop.
-pub enum BrewOutputMsg {
-    /// A line of output from the brew process (stdout or stderr).
-    Line(String),
+    Ok(BrewProcess { rx: Some(rx), child })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +114,12 @@ impl BrewOverlay {
         }
     }
 
+    const MAX_LINES: usize = 1000;
+
     pub fn push_line(&mut self, line: &str) {
+        if self.lines.len() >= Self::MAX_LINES {
+            self.lines.remove(0);
+        }
         self.lines.push(line.to_string());
     }
 
@@ -220,10 +252,4 @@ mod tests {
         assert_eq!(overlay.status, BrewStatus::Cancelled);
     }
 
-    #[test]
-    fn test_brew_exists_does_not_panic() {
-        // System-level test — just verify it doesn't panic.
-        // Result depends on whether brew is installed on this machine.
-        let _ = crate::updater::brew_exists();
-    }
 }

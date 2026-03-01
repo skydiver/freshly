@@ -135,8 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     spawn_scan(tx.clone(), Arc::clone(&brew_cache));
 
     let mut event_reader = EventStream::new();
-    let mut brew_rx: Option<tokio::sync::mpsc::Receiver<updater::BrewOutputMsg>> = None;
-    let mut brew_child: Option<std::process::Child> = None;
+    let mut brew_proc: Option<updater::BrewProcess> = None;
 
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
@@ -153,22 +152,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 result.apps = filter_by_source(result.apps, &cli.source);
                 app.set_results(result);
             }
-            msg = async {
-                match brew_rx.as_mut() {
-                    Some(rx) => rx.recv().await,
+            line = async {
+                match brew_proc.as_mut() {
+                    Some(proc) => proc.recv().await,
                     None => std::future::pending().await,
                 }
             } => {
-                match msg {
-                    Some(updater::BrewOutputMsg::Line(line)) => {
-                        if let Some(ref mut overlay) = app.brew_overlay {
-                            overlay.push_line(&line);
-                        }
-                    }
-                    None => {
-                        // Channel closed — reader threads done
-                        brew_rx = None;
-                    }
+                if let Some(ref mut overlay) = app.brew_overlay {
+                    overlay.push_line(&line);
                 }
             }
             Some(Ok(event)) = event_reader.next() => {
@@ -181,8 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         // Dismiss overlay
                                         let was_success = overlay.status == updater::BrewStatus::Succeeded;
                                         app.brew_overlay = None;
-                                        brew_rx = None;
-                                        brew_child = None;
+                                        brew_proc = None;
                                         // The overlay captures all input, so selected_app()
                                         // is guaranteed to still be the app that triggered
                                         // the brew upgrade — navigation cannot occur while
@@ -209,10 +199,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 KeyCode::Char('y') => {
                                     if overlay.status == updater::BrewStatus::Confirming {
                                         overlay.confirm_cancel();
-                                        if let Some(mut child) = brew_child.take() {
-                                            let _ = child.kill();
-                                            let _ = child.wait();
+                                        if let Some(ref mut proc) = brew_proc {
+                                            proc.kill();
                                         }
+                                        brew_proc = None;
                                     }
                                 }
                                 KeyCode::Char('n') => {
@@ -302,48 +292,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             Some(app::Action::Update) => {
                                                 match app.update_selected_app() {
                                                     app::UpdateResult::OpenAppStore => {
-                                                        match std::process::Command::new("open")
-                                                            .arg("macappstore://showUpdatesPage")
-                                                            .spawn()
-                                                        {
-                                                            Ok(_) => {
-                                                                app.status_message = Some("Opened App Store updates".to_string());
-                                                            }
-                                                            Err(e) => {
-                                                                app.status_message = Some(format!("Failed to open App Store: {}", e));
-                                                            }
-                                                        }
+                                                        app.open_with_status(
+                                                            "macappstore://showUpdatesPage",
+                                                            "App Store",
+                                                            Some("Opened App Store updates".to_string()),
+                                                        );
                                                     }
                                                     app::UpdateResult::OpenSparkle { app_name, app_path } => {
-                                                        match std::process::Command::new("open")
-                                                            .arg(&app_path)
-                                                            .spawn()
-                                                        {
-                                                            Ok(_) => {
-                                                                app.status_message = Some(format!("Opened {} — check for updates in-app", app_name));
-                                                            }
-                                                            Err(e) => {
-                                                                app.status_message = Some(format!("Failed to open: {}", e));
-                                                            }
-                                                        }
+                                                        app.open_with_status(
+                                                            &app_path,
+                                                            &app_name,
+                                                            Some(format!("Opened {} — check for updates in-app", app_name)),
+                                                        );
                                                     }
                                                     app::UpdateResult::BrewUpgrade { cask_token, app_name } => {
-                                                        if !updater::brew_exists() {
-                                                            app.status_message = Some(
-                                                                "Homebrew not found — install from brew.sh".to_string()
-                                                            );
-                                                        } else {
-                                                            match updater::spawn_brew_upgrade(&cask_token) {
-                                                                Ok((rx, child)) => {
-                                                                    app.brew_overlay = Some(
-                                                                        updater::BrewOverlay::new(cask_token, app_name)
-                                                                    );
-                                                                    brew_rx = Some(rx);
-                                                                    brew_child = Some(child);
-                                                                }
-                                                                Err(e) => {
-                                                                    app.status_message = Some(format!("Failed to start brew: {}", e));
-                                                                }
+                                                        match updater::spawn_brew_upgrade(&cask_token) {
+                                                            Ok(proc) => {
+                                                                app.brew_overlay = Some(
+                                                                    updater::BrewOverlay::new(cask_token, app_name)
+                                                                );
+                                                                brew_proc = Some(proc);
+                                                            }
+                                                            Err(e) => {
+                                                                app.status_message = Some(e);
                                                             }
                                                         }
                                                     }
@@ -376,22 +347,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             _ = tick => {
                 // Check brew process exit
-                if let Some(ref mut child) = brew_child {
-                    if let Ok(Some(status)) = child.try_wait() {
+                if let Some(ref mut proc) = brew_proc {
+                    if let Some(success) = proc.try_wait() {
                         if let Some(ref mut overlay) = app.brew_overlay {
-                            overlay.finish(status.success());
+                            overlay.finish(success);
                         }
-                        brew_child = None;
-                        brew_rx = None;
+                        brew_proc = None;
                     }
                 }
             }
         }
 
         if app.should_quit {
-            if let Some(mut child) = brew_child.take() {
-                let _ = child.kill();
-                let _ = child.wait();
+            if let Some(ref mut proc) = brew_proc {
+                proc.kill();
             }
             break;
         }

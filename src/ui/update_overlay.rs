@@ -1,6 +1,6 @@
+use super::centered_rect;
 use crate::updater::{BrewOverlay, BrewStatus};
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -123,22 +123,3 @@ pub fn draw(f: &mut Frame, overlay: &BrewOverlay) {
     f.render_widget(paragraph, area);
 }
 
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length((area.height.saturating_sub(height)) / 2),
-            Constraint::Length(height),
-            Constraint::Min(0),
-        ])
-        .split(area);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length((area.width.saturating_sub(width)) / 2),
-            Constraint::Length(width),
-            Constraint::Min(0),
-        ])
-        .split(vertical[1])[1]
-}
