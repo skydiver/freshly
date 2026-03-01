@@ -19,7 +19,7 @@ freshly scans your `/Applications` folder and checks for available updates acros
 
 - **Three update sources** — checks App Store, Homebrew Cask catalog, and Sparkle appcast feeds concurrently
 - **No package manager required** — detects updates for apps installed via DMG, drag-and-drop, or direct download
-- **Interactive TUI** — browse apps, view changelogs, filter by update status, search by name
+- **Interactive TUI** — browse apps, view changelogs, open apps directly, filter by update status, search by name
 - **JSON output** — pipe results to other tools with `--json`
 - **Fast** — parallel scanning with async I/O, typically completes in a few seconds
 
@@ -74,8 +74,11 @@ freshly --json --verbose
 | `s`                    | Cycle sort: Name → Source → Status        |
 | `/`                    | Search by app name                        |
 | `Esc`                  | Cancel search                             |
+| `Enter`                | Open selected app                         |
+| `e`                    | Show scan errors                          |
 | `r`                    | Refresh scan                              |
 | `PageUp` / `PageDown`  | Scroll by page                            |
+| Mouse click            | Switch between list and detail pane       |
 | `q`                    | Quit                                      |
 
 ### Update Sources
