@@ -280,6 +280,7 @@ impl<H: HttpClient> Scanner for HomebrewScanner<'_, H> {
                 has_update,
                 changelog: None,
                 app_path: app.path.clone(),
+                cask_token: Some(cask.token.clone()),
             });
         }
 

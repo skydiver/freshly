@@ -29,6 +29,7 @@ pub struct AppInfo {
     pub has_update: bool,
     pub changelog: Option<String>,
     pub app_path: PathBuf,
+    pub cask_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -133,6 +134,7 @@ mod tests {
             has_update: true,
             changelog: Some("Bug fixes".to_string()),
             app_path: PathBuf::from("/Applications/TestApp.app"),
+            cask_token: None,
         };
         assert_eq!(app.name, "TestApp");
         assert!(app.has_update);

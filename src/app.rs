@@ -373,6 +373,7 @@ mod tests {
             has_update,
             changelog: None,
             app_path: PathBuf::from(format!("/Applications/{}.app", name)),
+            cask_token: None,
         }
     }
 

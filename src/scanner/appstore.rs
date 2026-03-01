@@ -97,6 +97,7 @@ impl<H: HttpClient> Scanner for AppStoreScanner<'_, H> {
                                 has_update,
                                 changelog: itunes_app.release_notes.clone(),
                                 app_path: app.path.clone(),
+                                cask_token: None,
                             });
                         } else {
                             result.apps.push(AppInfo {
@@ -108,6 +109,7 @@ impl<H: HttpClient> Scanner for AppStoreScanner<'_, H> {
                                 has_update: false,
                                 changelog: None,
                                 app_path: app.path.clone(),
+                                cask_token: None,
                             });
                         }
                     }

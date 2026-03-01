@@ -200,6 +200,7 @@ impl<H: HttpClient> Scanner for SparkleScanner<'_, H> {
                                 has_update,
                                 changelog,
                                 app_path: app.path.clone(),
+                                cask_token: None,
                             });
                         }
                         Err(e) => {
