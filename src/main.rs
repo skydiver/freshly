@@ -223,10 +223,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     if app.active_pane == app::Pane::Detail
                                         && app.detail_focus == app::DetailFocus::Actions
                                     {
-                                        match app.selected_action {
-                                            0 => app.open_selected_app(),
-                                            1 => app.hide_selected_app(),
-                                            _ => {}
+                                        match app.selected_action_enum() {
+                                            Some(app::Action::OpenApp) => app.open_selected_app(),
+                                            Some(app::Action::HideApp) => app.hide_selected_app(),
+                                            Some(app::Action::Update) => {
+                                                // TODO: Task 3 will implement this
+                                                app.open_selected_app();
+                                            }
+                                            None => {}
                                         }
                                     }
                                 }

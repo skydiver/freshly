@@ -1,4 +1,4 @@
-use crate::model::{AppInfo, ScanError, ScanResult};
+use crate::model::{AppInfo, ScanError, ScanResult, Source};
 use crate::settings::Settings;
 use std::path::PathBuf;
 
@@ -68,6 +68,13 @@ impl SortMode {
             SortMode::Status => "Status",
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    Update,
+    OpenApp,
+    HideApp,
 }
 
 pub struct App {
@@ -239,8 +246,30 @@ impl App {
         self.apply_filter_and_sort();
     }
 
-    /// Number of action items in the detail pane.
-    const DETAIL_ACTION_COUNT: usize = 2; // "Open App", "Hide App"
+    /// Compute the available actions for the currently selected app.
+    pub fn actions_for_selected(&self) -> Vec<Action> {
+        let Some(selected) = self.selected_app() else {
+            return vec![];
+        };
+        if selected.has_update {
+            match selected.source {
+                Source::Sparkle => vec![Action::Update, Action::HideApp],
+                _ => vec![Action::Update, Action::OpenApp, Action::HideApp],
+            }
+        } else {
+            vec![Action::OpenApp, Action::HideApp]
+        }
+    }
+
+    /// Return the currently focused action, if any.
+    pub fn selected_action_enum(&self) -> Option<Action> {
+        let actions = self.actions_for_selected();
+        actions.get(self.selected_action).cloned()
+    }
+
+    fn detail_action_count(&self) -> usize {
+        self.actions_for_selected().len()
+    }
 
     pub fn navigate_detail_down(&mut self) {
         self.status_message = None;
@@ -251,8 +280,8 @@ impl App {
                 self.selected_action = 0;
             }
             DetailFocus::Actions => {
-                // Move to next action (currently only one, so clamp)
-                if self.selected_action + 1 < Self::DETAIL_ACTION_COUNT {
+                // Move to next action, clamped at the last one
+                if self.selected_action + 1 < self.detail_action_count() {
                     self.selected_action += 1;
                 }
             }
@@ -695,5 +724,60 @@ mod tests {
         // Up again switches to Scroll
         app.navigate_detail_up();
         assert_eq!(app.detail_focus, DetailFocus::Scroll);
+    }
+
+    #[test]
+    fn test_actions_for_outdated_homebrew() {
+        let mut app = test_app();
+        let mut brew_app = make_app("Firefox", true, Source::Homebrew);
+        brew_app.cask_token = Some("firefox".to_string());
+        app.set_results(ScanResult {
+            apps: vec![brew_app],
+            errors: vec![],
+        });
+        let actions = app.actions_for_selected();
+        assert_eq!(actions, vec![Action::Update, Action::OpenApp, Action::HideApp]);
+    }
+
+    #[test]
+    fn test_actions_for_outdated_sparkle() {
+        let mut app = test_app();
+        app.set_results(ScanResult {
+            apps: vec![make_app("Firefox", true, Source::Sparkle)],
+            errors: vec![],
+        });
+        let actions = app.actions_for_selected();
+        assert_eq!(actions, vec![Action::Update, Action::HideApp]);
+    }
+
+    #[test]
+    fn test_actions_for_outdated_appstore() {
+        let mut app = test_app();
+        app.set_results(ScanResult {
+            apps: vec![make_app("Pages", true, Source::AppStore)],
+            errors: vec![],
+        });
+        let actions = app.actions_for_selected();
+        assert_eq!(actions, vec![Action::Update, Action::OpenApp, Action::HideApp]);
+    }
+
+    #[test]
+    fn test_actions_for_up_to_date() {
+        let mut app = test_app();
+        app.set_results(ScanResult {
+            apps: vec![make_app("Firefox", false, Source::Sparkle)],
+            errors: vec![],
+        });
+        app.filter = FilterMode::All;
+        app.apply_filter_and_sort();
+        let actions = app.actions_for_selected();
+        assert_eq!(actions, vec![Action::OpenApp, Action::HideApp]);
+    }
+
+    #[test]
+    fn test_actions_empty_when_no_selection() {
+        let app = test_app();
+        let actions = app.actions_for_selected();
+        assert!(actions.is_empty());
     }
 }
