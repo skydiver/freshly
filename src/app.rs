@@ -198,6 +198,10 @@ impl App {
 
     pub fn cycle_filter(&mut self) {
         self.filter = self.filter.next();
+        // Status sort is meaningless when filter constrains to one status
+        if self.sort == SortMode::Status && self.filter != FilterMode::All {
+            self.sort = SortMode::Name;
+        }
         self.selected_index = 0;
         self.detail_scroll = 0;
         self.apply_filter_and_sort();
@@ -205,6 +209,10 @@ impl App {
 
     pub fn cycle_sort(&mut self) {
         self.sort = self.sort.next();
+        // Status sort is meaningless when filter already constrains to one status
+        if self.sort == SortMode::Status && self.filter != FilterMode::All {
+            self.sort = self.sort.next();
+        }
         self.apply_filter_and_sort();
     }
 
@@ -410,10 +418,55 @@ mod tests {
     fn test_sort_by_status() {
         let mut app = App::new();
         app.set_results(sample_result());
+        app.filter = FilterMode::All;
         app.sort = SortMode::Status;
         app.apply_filter_and_sort();
         let first = app.selected_app().unwrap();
         assert!(first.has_update);
+    }
+
+    #[test]
+    fn test_cycle_sort_skips_status_when_filtered() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        // Default filter is Outdated
+        assert_eq!(app.filter, FilterMode::Outdated);
+        app.sort = SortMode::Source;
+        app.cycle_sort(); // Source → Status → skipped → Name
+        assert_eq!(app.sort, SortMode::Name);
+    }
+
+    #[test]
+    fn test_cycle_filter_resets_status_sort() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.filter = FilterMode::All;
+        app.sort = SortMode::Status;
+        app.apply_filter_and_sort();
+        app.cycle_filter(); // All → Outdated, Status sort should reset
+        assert_eq!(app.filter, FilterMode::Outdated);
+        assert_eq!(app.sort, SortMode::Name);
+    }
+
+    #[test]
+    fn test_cycle_filter_keeps_name_sort() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.filter = FilterMode::All;
+        app.sort = SortMode::Name;
+        app.apply_filter_and_sort();
+        app.cycle_filter(); // All → Outdated, Name sort should stay
+        assert_eq!(app.sort, SortMode::Name);
+    }
+
+    #[test]
+    fn test_cycle_sort_allows_status_when_all() {
+        let mut app = App::new();
+        app.set_results(sample_result());
+        app.filter = FilterMode::All;
+        app.sort = SortMode::Source;
+        app.cycle_sort(); // Source → Status
+        assert_eq!(app.sort, SortMode::Status);
     }
 
     #[test]
