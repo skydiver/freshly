@@ -138,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut brew_proc: Option<updater::BrewProcess> = None;
 
     loop {
-        terminal.draw(|f| ui::draw(f, &app))?;
+        terminal.draw(|f| ui::draw(f, &mut app))?;
 
         // Wait for scan results, terminal events, or tick (for spinner animation)
         let tick = tokio::time::sleep(Duration::from_millis(100));

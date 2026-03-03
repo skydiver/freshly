@@ -45,7 +45,7 @@ pub fn main_layout(area: Rect) -> MainLayout {
 
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[0]);
 
     MainLayout {
@@ -55,14 +55,14 @@ pub fn main_layout(area: Rect) -> MainLayout {
     }
 }
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     match app.screen {
         Screen::Loading => loading::draw(f, app),
         Screen::Main => draw_main(f, app),
     }
 }
 
-fn draw_main(f: &mut Frame, app: &App) {
+fn draw_main(f: &mut Frame, app: &mut App) {
     let layout = main_layout(f.area());
 
     app_list::draw(f, app, layout.list);

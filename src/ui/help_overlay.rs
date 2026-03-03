@@ -31,7 +31,7 @@ fn section_header<'a>(title: &'a str) -> Line<'a> {
     ))
 }
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     let frame_area = f.area();
     let width = (frame_area.width * 80 / 100).max(50);
     let height = (frame_area.height * 80 / 100).max(10);
@@ -89,7 +89,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     let inner_height = area.height.saturating_sub(2); // minus top/bottom borders
     let total_lines = lines.len() as u16;
     let max_scroll = total_lines.saturating_sub(inner_height);
-    let scroll = app.help_scroll.min(max_scroll);
+    app.help_scroll = app.help_scroll.min(max_scroll);
+    let scroll = app.help_scroll;
 
     let paragraph = Paragraph::new(lines)
         .block(block)
