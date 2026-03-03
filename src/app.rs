@@ -99,6 +99,8 @@ pub struct App {
     pub total_scanned: usize,
     pub errors: Vec<ScanError>,
     pub show_errors: bool,
+    pub show_help: bool,
+    pub help_scroll: u16,
     pub should_quit: bool,
     pub status_message: Option<String>,
     pub hidden_bundle_ids: Vec<String>,
@@ -125,6 +127,8 @@ impl App {
             total_scanned: 0,
             errors: Vec::new(),
             show_errors: false,
+            show_help: false,
+            help_scroll: 0,
             should_quit: false,
             status_message: None,
             hidden_bundle_ids: settings.hidden_apps,
@@ -149,6 +153,19 @@ impl App {
 
     pub fn toggle_errors(&mut self) {
         self.show_errors = !self.show_errors;
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
+        self.help_scroll = 0;
+    }
+
+    pub fn scroll_help_down(&mut self) {
+        self.help_scroll = self.help_scroll.saturating_add(1);
+    }
+
+    pub fn scroll_help_up(&mut self) {
+        self.help_scroll = self.help_scroll.saturating_sub(1);
     }
 
     pub fn selected_app(&self) -> Option<&AppInfo> {
@@ -831,5 +848,38 @@ mod tests {
         });
         let result = app.update_selected_app();
         assert_eq!(result, UpdateResult::None);
+    }
+
+    #[test]
+    fn test_initial_help_state() {
+        let app = test_app();
+        assert!(!app.show_help);
+        assert_eq!(app.help_scroll, 0);
+    }
+
+    #[test]
+    fn test_toggle_help() {
+        let mut app = test_app();
+        app.toggle_help();
+        assert!(app.show_help);
+        app.toggle_help();
+        assert!(!app.show_help);
+        assert_eq!(app.help_scroll, 0);
+    }
+
+    #[test]
+    fn test_help_scroll() {
+        let mut app = test_app();
+        app.show_help = true;
+        app.scroll_help_down();
+        assert_eq!(app.help_scroll, 1);
+        app.scroll_help_down();
+        assert_eq!(app.help_scroll, 2);
+        app.scroll_help_up();
+        assert_eq!(app.help_scroll, 1);
+        app.scroll_help_up();
+        assert_eq!(app.help_scroll, 0);
+        app.scroll_help_up(); // Should not underflow
+        assert_eq!(app.help_scroll, 0);
     }
 }
