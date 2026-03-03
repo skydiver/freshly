@@ -219,6 +219,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 _ => {}
                             }
+                        } else if app.show_help {
+                            match key.code {
+                                KeyCode::Esc
+                                | KeyCode::Char('q')
+                                | KeyCode::Char('h')
+                                | KeyCode::Char('H')
+                                | KeyCode::Char('?') => {
+                                    app.show_help = false;
+                                    app.help_scroll = 0;
+                                }
+                                KeyCode::Up | KeyCode::Char('k') => app.scroll_help_up(),
+                                KeyCode::Down | KeyCode::Char('j') => app.scroll_help_down(),
+                                KeyCode::PageUp => {
+                                    let page = terminal.size().map(|s| s.height as usize).unwrap_or(20).saturating_sub(4);
+                                    for _ in 0..page { app.scroll_help_up(); }
+                                }
+                                KeyCode::PageDown => {
+                                    let page = terminal.size().map(|s| s.height as usize).unwrap_or(20).saturating_sub(4);
+                                    for _ in 0..page { app.scroll_help_down(); }
+                                }
+                                _ => {}
+                            }
                         } else if app.is_searching {
                             match key.code {
                                 KeyCode::Esc => app.toggle_search(),
@@ -324,6 +346,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             None => {}
                                         }
                                     }
+                                }
+                                KeyCode::Char('h')
+                                | KeyCode::Char('H')
+                                | KeyCode::Char('?') => {
+                                    app.toggle_help();
                                 }
                                 _ => {}
                             }
