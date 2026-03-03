@@ -1,10 +1,13 @@
 use crate::app::{App, FilterMode, Pane};
 use crate::model::{is_major_update, Source};
 use ratatui::{
-    layout::Rect,
+    layout::{Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::{
+        Block, Borders, List, ListItem, ListState, Scrollbar, ScrollbarOrientation,
+        ScrollbarState,
+    },
     Frame,
 };
 
@@ -118,6 +121,22 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     );
 
     f.render_stateful_widget(list, area, &mut state);
+
+    // Show scrollbar when list exceeds visible area
+    let inner_height = area.height.saturating_sub(2) as usize; // minus borders
+    let total_items = app.filtered_indices.len();
+    if total_items > inner_height {
+        let mut scrollbar_state = ScrollbarState::new(total_items.saturating_sub(inner_height))
+            .position(app.selected_index);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None);
+        f.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin { vertical: 1, horizontal: 0 }),
+            &mut scrollbar_state,
+        );
+    }
 }
 
 fn source_initial(source: &Source) -> &'static str {

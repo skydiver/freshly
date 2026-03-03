@@ -99,6 +99,7 @@ pub struct App {
     pub total_scanned: usize,
     pub errors: Vec<ScanError>,
     pub show_errors: bool,
+    pub error_scroll: u16,
     pub show_help: bool,
     pub help_scroll: u16,
     pub should_quit: bool,
@@ -127,6 +128,7 @@ impl App {
             total_scanned: 0,
             errors: Vec::new(),
             show_errors: false,
+            error_scroll: 0,
             show_help: false,
             help_scroll: 0,
             should_quit: false,
@@ -153,6 +155,15 @@ impl App {
 
     pub fn toggle_errors(&mut self) {
         self.show_errors = !self.show_errors;
+        self.error_scroll = 0;
+    }
+
+    pub fn scroll_errors_down(&mut self) {
+        self.error_scroll = self.error_scroll.saturating_add(1);
+    }
+
+    pub fn scroll_errors_up(&mut self) {
+        self.error_scroll = self.error_scroll.saturating_sub(1);
     }
 
     pub fn toggle_help(&mut self) {

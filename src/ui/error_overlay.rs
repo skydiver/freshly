@@ -1,18 +1,20 @@
 use super::centered_rect;
 use crate::app::App;
 use ratatui::{
+    layout::Margin,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
+    let frame_area = f.area();
     let error_count = app.errors.len();
-    // Height: 1 title border + 1 blank + errors + 1 blank + 1 footer + 1 border = errors + 5
-    let content_height = (error_count as u16).min(20) + 5;
-    let width = (f.area().width * 60 / 100).max(40);
-    let area = centered_rect(width, content_height, f.area());
+
+    let width = (frame_area.width * 60 / 100).max(40);
+    let height = (frame_area.height * 60 / 100).max(10);
+    let area = centered_rect(width, height, frame_area);
 
     let title = format!(
         " {} {} during scan ",
@@ -28,7 +30,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     let mut lines = vec![Line::from("")];
 
-    for err in app.errors.iter().take(20) {
+    for err in &app.errors {
         let app_name = err.app_name.as_deref().unwrap_or("unknown");
         lines.push(Line::from(vec![
             Span::styled(
@@ -46,23 +48,35 @@ pub fn draw(f: &mut Frame, app: &App) {
         ]));
     }
 
-    if error_count > 20 {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            format!(" … and {} more", error_count - 20),
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         " Esc to close",
         Style::default().fg(Color::DarkGray),
     )));
 
-    let paragraph = Paragraph::new(lines).block(block);
+    let inner_height = area.height.saturating_sub(2);
+    let total_lines = lines.len() as u16;
+    let max_scroll = total_lines.saturating_sub(inner_height);
+    app.error_scroll = app.error_scroll.min(max_scroll);
+    let scroll = app.error_scroll;
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .scroll((scroll, 0));
 
     f.render_widget(Clear, area);
     f.render_widget(paragraph, area);
-}
 
+    if max_scroll > 0 {
+        let mut scrollbar_state = ScrollbarState::new(max_scroll as usize)
+            .position(scroll as usize);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None);
+        f.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin { vertical: 1, horizontal: 0 }),
+            &mut scrollbar_state,
+        );
+    }
+}

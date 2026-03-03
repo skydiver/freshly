@@ -1,9 +1,12 @@
 use super::centered_rect;
 use crate::updater::{BrewOverlay, BrewStatus};
 use ratatui::{
+    layout::Margin,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{
+        Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+    },
     Frame,
 };
 
@@ -113,7 +116,9 @@ pub fn draw(f: &mut Frame, overlay: &BrewOverlay) {
 
     // Auto-scroll: inner height is area minus top/bottom borders.
     let inner_height = area.height.saturating_sub(2) as usize;
-    let scroll_offset = lines.len().saturating_sub(inner_height) as u16;
+    let total_lines = lines.len();
+    let max_scroll = total_lines.saturating_sub(inner_height);
+    let scroll_offset = max_scroll as u16;
 
     let paragraph = Paragraph::new(lines)
         .block(block)
@@ -121,5 +126,18 @@ pub fn draw(f: &mut Frame, overlay: &BrewOverlay) {
 
     f.render_widget(Clear, area);
     f.render_widget(paragraph, area);
-}
 
+    // Show scrollbar only when content overflows
+    if max_scroll > 0 {
+        let mut scrollbar_state = ScrollbarState::new(max_scroll)
+            .position(max_scroll); // always at bottom (auto-scroll)
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None);
+        f.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin { vertical: 1, horizontal: 0 }),
+            &mut scrollbar_state,
+        );
+    }
+}

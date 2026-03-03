@@ -216,6 +216,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             match key.code {
                                 KeyCode::Esc | KeyCode::Char('e') | KeyCode::Char('q') => {
                                     app.show_errors = false;
+                                    app.error_scroll = 0;
+                                }
+                                KeyCode::Up | KeyCode::Char('k') => app.scroll_errors_up(),
+                                KeyCode::Down | KeyCode::Char('j') => app.scroll_errors_down(),
+                                KeyCode::PageUp => {
+                                    let page = terminal.size().map(|s| s.height as usize).unwrap_or(20).saturating_sub(4);
+                                    for _ in 0..page { app.scroll_errors_up(); }
+                                }
+                                KeyCode::PageDown => {
+                                    let page = terminal.size().map(|s| s.height as usize).unwrap_or(20).saturating_sub(4);
+                                    for _ in 0..page { app.scroll_errors_down(); }
                                 }
                                 _ => {}
                             }
