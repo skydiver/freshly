@@ -10,5 +10,8 @@
 # Environment
 .env*
 
+# Cargo local config
+.cargo/
+
 # Build artifacts
 freshly.zip

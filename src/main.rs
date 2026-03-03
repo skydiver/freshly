@@ -1,4 +1,6 @@
 mod app;
+#[cfg(feature = "demo")]
+mod demo;
 mod discovery;
 mod model;
 mod scanner;
@@ -40,6 +42,11 @@ struct Cli {
     /// Write diagnostic trace to ~/Library/Caches/freshly/freshly.log
     #[arg(long)]
     trace: bool,
+
+    /// Launch with dummy data for screenshots (requires --features demo)
+    #[cfg(feature = "demo")]
+    #[arg(long, hide = true)]
+    demo: bool,
 }
 
 fn spawn_scan(
@@ -132,7 +139,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new(settings_path);
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ScanResult>(1);
-    spawn_scan(tx.clone(), Arc::clone(&brew_cache));
+
+    #[cfg(feature = "demo")]
+    let demo_mode = cli.demo;
+    #[cfg(not(feature = "demo"))]
+    let demo_mode = false;
+
+    if demo_mode {
+        #[cfg(feature = "demo")]
+        app.set_results(demo::demo_result());
+    } else {
+        spawn_scan(tx.clone(), Arc::clone(&brew_cache));
+    }
 
     let mut event_reader = EventStream::new();
     let mut brew_proc: Option<updater::BrewProcess> = None;

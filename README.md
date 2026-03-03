@@ -6,8 +6,8 @@ freshly scans your `/Applications` folder and checks for available updates acros
 
 <table>
 <tr>
-<td><a href="assets/freshly-outdated.png"><img src="assets/freshly-outdated.png" alt="freshly — outdated apps view" width="400"></a></td>
-<td><a href="assets/freshly-all.png"><img src="assets/freshly-all.png" alt="freshly — all apps view" width="400"></a></td>
+<td><a href="assets/freshly-outdated-v2.png"><img src="assets/freshly-outdated-v2.png" alt="freshly — outdated apps view" width="400"></a></td>
+<td><a href="assets/freshly-all-v2.png"><img src="assets/freshly-all-v2.png" alt="freshly — all apps view" width="400"></a></td>
 </tr>
 <tr>
 <td align="center"><em>Outdated apps</em></td>
@@ -76,6 +76,7 @@ freshly --json --verbose
 | `f`                    | Cycle filter: Outdated → All → Up to date |
 | `s`                    | Cycle sort: Name → Source → Status        |
 | `/`                    | Search by app name                        |
+| `?` / `H`              | Show keyboard shortcuts                   |
 | `e`                    | Show scan errors                          |
 | `r`                    | Refresh scan                              |
 | `PageUp` / `PageDown`  | Scroll by page                            |
