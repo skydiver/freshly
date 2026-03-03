@@ -1,6 +1,7 @@
 pub mod app_detail;
 pub mod app_list;
 pub mod error_overlay;
+pub mod help_overlay;
 pub mod loading;
 pub mod status_bar;
 pub mod update_overlay;
