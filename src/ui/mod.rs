@@ -73,6 +73,10 @@ fn draw_main(f: &mut Frame, app: &App) {
         error_overlay::draw(f, app);
     }
 
+    if app.show_help {
+        help_overlay::draw(f, app);
+    }
+
     if let Some(ref overlay) = app.brew_overlay {
         update_overlay::draw(f, overlay);
     }
