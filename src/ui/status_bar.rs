@@ -23,32 +23,17 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         ));
         spans.push(Span::raw("cancel"));
     } else {
-        let keys = [
-            ("↑/↓", "navigate"),
-            ("Tab", "switch pane"),
-            ("f", "filter"),
-            ("s", "sort"),
-            ("/", "search"),
-            ("r", "rescan"),
-            ("q", "quit"),
-        ];
-
-        for (i, (key, desc)) in keys.iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::styled("  ", Style::default()));
-            }
-            spans.push(Span::styled(
-                format!(" {} ", key),
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::DarkGray)
-                    .add_modifier(Modifier::BOLD),
-            ));
-            spans.push(Span::styled(
-                format!(" {}", desc),
-                Style::default().fg(Color::DarkGray),
-            ));
-        }
+        spans.push(Span::styled(
+            " ?/H ",
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            " help",
+            Style::default().fg(Color::DarkGray),
+        ));
 
         if let Some(ref msg) = app.status_message {
             spans.push(Span::styled(
