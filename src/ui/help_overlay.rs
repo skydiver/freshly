@@ -1,9 +1,10 @@
 use super::centered_rect;
 use crate::app::App;
 use ratatui::{
+    layout::{Margin, Position},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 
@@ -84,10 +85,43 @@ pub fn draw(f: &mut Frame, app: &App) {
         Style::default().fg(Color::DarkGray),
     )));
 
+    // Only scroll when content exceeds the available inner height
+    let inner_height = area.height.saturating_sub(2); // minus top/bottom borders
+    let total_lines = lines.len() as u16;
+    let max_scroll = total_lines.saturating_sub(inner_height);
+    let scroll = app.help_scroll.min(max_scroll);
+
     let paragraph = Paragraph::new(lines)
         .block(block)
-        .scroll((app.help_scroll, 0));
+        .scroll((scroll, 0));
 
+    // Dim the background — apply DIM modifier to all existing cells
+    // so the app content remains faintly visible behind the modal
+    let dim_style = Style::default().add_modifier(Modifier::DIM);
+    let buf = f.buffer_mut();
+    for y in frame_area.top()..frame_area.bottom() {
+        for x in frame_area.left()..frame_area.right() {
+            if let Some(cell) = buf.cell_mut(Position { x, y }) {
+                cell.set_style(dim_style);
+            }
+        }
+    }
+
+    // Clear the overlay area and render the help content on top
     f.render_widget(Clear, area);
     f.render_widget(paragraph, area);
+
+    // Show scrollbar only when content overflows
+    if max_scroll > 0 {
+        let mut scrollbar_state = ScrollbarState::new(max_scroll as usize)
+            .position(scroll as usize);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None);
+        f.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin { vertical: 1, horizontal: 0 }),
+            &mut scrollbar_state,
+        );
+    }
 }
