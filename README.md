@@ -32,6 +32,16 @@ freshly scans your `/Applications` folder and checks for available updates acros
 brew install skydiver/freshly/freshly
 ```
 
+### Download binary
+
+Download the latest release from the [releases page](https://github.com/skydiver/freshly/releases) (universal binary for Apple Silicon and Intel).
+
+The binary is **code-signed and notarized by Apple**, so it's verified as safe to run. However, browsers add a quarantine attribute to downloaded files that may trigger a Gatekeeper warning. To resolve this, remove the quarantine attribute:
+
+```bash
+xattr -d com.apple.quarantine freshly
+```
+
 ### From source
 
 Requires [Rust](https://www.rust-lang.org/tools/install) 1.75 or later.
@@ -67,21 +77,21 @@ freshly --json --verbose
 
 ### Keyboard Controls
 
-| Key                    | Action                                    |
-| ---------------------- | ----------------------------------------- |
-| `↑` / `↓` or `j` / `k` | Navigate list or detail actions            |
+| Key                    | Action                                      |
+| ---------------------- | ------------------------------------------- |
+| `↑` / `↓` or `j` / `k` | Navigate list or detail actions             |
 | `Enter`                | List: open detail pane · Detail: run action |
-| `Esc`                  | Detail: back to list · Search: cancel      |
-| `Tab`                  | Switch between app list and detail pane   |
-| `f`                    | Cycle filter: Outdated → All → Up to date |
-| `s`                    | Cycle sort: Name → Source → Status        |
-| `/`                    | Search by app name                        |
-| `?` / `H`              | Show keyboard shortcuts                   |
-| `e`                    | Show scan errors                          |
-| `r`                    | Refresh scan                              |
-| `PageUp` / `PageDown`  | Scroll by page                            |
-| Mouse click            | Switch between list and detail pane       |
-| `q`                    | Quit                                      |
+| `Esc`                  | Detail: back to list · Search: cancel       |
+| `Tab`                  | Switch between app list and detail pane     |
+| `f`                    | Cycle filter: Outdated → All → Up to date   |
+| `s`                    | Cycle sort: Name → Source → Status          |
+| `/`                    | Search by app name                          |
+| `?` / `H`              | Show keyboard shortcuts                     |
+| `e`                    | Show scan errors                            |
+| `r`                    | Refresh scan                                |
+| `PageUp` / `PageDown`  | Scroll by page                              |
+| Mouse click            | Switch between list and detail pane         |
+| `q`                    | Quit                                        |
 
 ### Update Sources
 
